@@ -1,0 +1,43 @@
+package system
+
+config system
+	option hostname 'router'
+	option timezone 'UTC'
+	option ttylogin '0'
+	option log_size '128'
+	option urandom_seed '0'
+
+config timeserver 'ntp'
+	option enabled '1'
+	option enable_server '0'
+	list server '192.168.1.12'
+	list server '192.168.1.10'
+
+config led 'led_wanact'
+	option name 'WANACT'
+	option sysfs 'mdio-bus:0f:green:wan'
+	option trigger 'netdev'
+	option mode 'rx tx'
+	option dev 'eth0'
+
+config led 'led_wanlink'
+	option name 'WANLINK'
+	option sysfs 'mdio-bus:0f:amber:wan'
+	option trigger 'netdev'
+	option mode 'link'
+	option dev 'eth0'
+
+config led 'led_lanact'
+	option name 'LANACT'
+	option sysfs 'green:lan'
+	option trigger 'netdev'
+	option mode 'rx tx'
+	option dev 'eth1'
+
+config led 'led_lanlink'
+	option name 'LANLINK'
+	option sysfs 'amber:lan'
+	option trigger 'netdev'
+	option mode 'link'
+	option dev 'eth1'
+

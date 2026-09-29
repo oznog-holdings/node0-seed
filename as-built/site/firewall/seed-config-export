@@ -1,0 +1,59 @@
+#!/usr/local/bin/python3
+# seed (rung 6): the firewall's configuration as the site may keep it: /conf/config.xml with, redacted HERE,
+# before anything leaves the firewall:
+#   - the WAN interface's settings (the owner's values: address, prefix, gateway, anything but <if>/<enable>),
+#     and every gateway on the WAN (the owner's decision 1, 20260929: never read, copied or recorded);
+#   - the rules named "fixture:*" (the lab's; ANNEX), each reduced to its name;
+#   - every secret-bearing field (passwords, hashes, private keys, API and TSIG secrets, OTP seeds);
+#   - <revision> (who/when of the last save: noise for the drift check).
+# Then a guard: if any private IPv4 address outside the site's own ranges is left, it prints nothing and
+# fails. Used by the builder for every read of the configuration, and by infra's daily device-config job
+# (forced command). Installed as /usr/local/sbin/seed-config-export (site/firewall/README.md).
+import re, sys, xml.etree.ElementTree as ET
+
+R = 'REDACTED'
+tree = ET.parse(sys.argv[1] if len(sys.argv) > 1 else '/conf/config.xml')
+root = tree.getroot()
+
+def blank(el, keep=()):
+    for c in list(el):
+        if c.tag in keep: continue
+        blank(c); c.text = R if (c.text or '').strip() else c.text
+        for a in list(c.attrib): c.set(a, R)
+
+# the WAN interface (by name, and any interface on re0)
+ifs = root.find('interfaces')
+if ifs is not None:
+    for i in ifs:
+        if i.tag == 'wan' or (i.findtext('if') or '') == 're0':
+            blank(i, keep=('if', 'enable', 'descr'))
+# gateways on the WAN (legacy and MVC)
+for gw in root.iter('gateway_item'):
+    if (gw.findtext('interface') or '') == 'wan' or 'wan' in (gw.findtext('name') or '').lower():
+        blank(gw, keep=('interface', 'name'))
+# rules named fixture:* (legacy filter rules and MVC rules)
+for rule in list(root.iter('rule')):
+    d = (rule.findtext('descr') or rule.findtext('description') or '')
+    if d.startswith('fixture:'):
+        blank(rule, keep=('descr', 'description'))
+# secrets
+SECRET = re.compile(r'(password|passwd|secret|^prv$|privkey|private_?key|-hash$|_hash$|otp_seed|^psk$|pre-shared-key|^apikeys$|^key_secret$)', re.I)
+for el in root.iter():
+    if SECRET.search(el.tag):
+        if len(el): blank(el)
+        elif (el.text or '').strip(): el.text = R
+# noise
+for rev in root.findall('revision'): root.remove(rev)
+for el in root.iter():
+    if 'persisted_at' in el.attrib: del el.attrib['persisted_at']   # a save's timestamp (firmware settings)
+ET.indent(tree, space='  ')                                           # one element per line, for the drift diff
+
+out = ET.tostring(root, encoding='unicode')
+# the guard: private addresses must be the site's own (or the RFC1918/CGNAT network addresses in rules)
+OK = re.compile(r'^(192\.168\.(1|20|30|198|199)\.\d+|127\.\d+\.\d+\.\d+|10\.0\.0\.0|172\.16\.0\.0|192\.168\.0\.0|169\.254\.0\.0|100\.64\.0\.0)$')
+bad = sorted({a for a in re.findall(r'(?<![\d.])(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?![\d.])', out)
+              if re.match(r'^(10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)', a) and not OK.match(a)})
+if bad:
+    sys.stderr.write(f'seed-config-export: {len(bad)} private address(es) outside the site\'s ranges left; nothing printed\n')
+    sys.exit(2)
+sys.stdout.write('<?xml version="1.0"?>\n' + out + '\n')

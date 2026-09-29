@@ -1,0 +1,1 @@
+restrict,from="192.168.1.10",command="/usr/local/sbin/seed-config-export" ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY

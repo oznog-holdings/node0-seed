@@ -93,6 +93,10 @@ groups:
         expr: seed_router_config_drift_lines != 0
         labels: { severity: warning }
         annotations: { summary: "The router's configuration differs from the repository ({{ $value }} lines; -1: no expected copy). The diff: infra seed-state/router-drift.diff; site/router/config-tool check." }
+      - alert: FirewallConfigDrift
+        expr: seed_firewall_config_drift_lines != 0
+        labels: { severity: warning }
+        annotations: { summary: "The firewall's configuration differs from the repository ({{ $value }} lines; -1: no expected copy, -2: no export). The diff: infra seed-state/firewall-drift.diff." }
       - alert: TargetDown
         expr: up == 0
         for: 5m

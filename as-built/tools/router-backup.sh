@@ -9,7 +9,7 @@
 # Usage: tools/router-backup.sh   -> prints the file written and its sha256
 set -euo pipefail
 cd "$(dirname "$0")/.."
-R="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.1"
+R="ssh -o BatchMode=yes -o LogLevel=ERROR root@${ROUTER:-192.168.1.4}"   # the router: the access point at .4 from rung 6
 rcp=$(awk '/^  - &(master|agent) age1/{printf " -r %s", $3} /^  - &laptop_[a-z0-9]+ age1/{printf " -r %s", $3} /^  - &laptop_[a-z0-9]+ ssh-ed25519 /{printf " -r \"%s %s\"", $3, $4}' .sops.yaml)
 [[ $(grep -o -- ' -r ' <<<"$rcp" | wc -l) -eq 3 ]] || { echo "recipient lookup failed (want 3)" >&2; exit 1; }
 mkdir -p site/router/backup

@@ -1,7 +1,7 @@
 # As built
 
 The bench's working configuration, scripts and monitoring, exported from the build's own
-repository at commit 0fb33fc. It is what actually ran, with these changes for publication:
+repository at commit 2783daf. It is what actually ran, with these changes for publication:
 addresses outside the Seed are documentation addresses (`192.0.2.0/24`, `198.51.100.0/24`), and
 the bench's domain is `seed.example.com`; serials, MACs, device UUIDs and tailnet addresses are
 placeholders; the owner's login account is `admin`; public keys say where yours goes; and the
@@ -17,7 +17,7 @@ use this folder to see how a piece looked when it worked. The setup scripts unde
 ran once and keep the values of their day; where a setting changed later (the UPS shutdown
 threshold went from 50% to 25% on 20260927), the rung pages give the current value. The rung 4b
 benchmark corpus (`site/laptop/inference/bench/4b/docs.json`) copies paragraphs of the node0
-pages; twenty of them were edited for publication after the measurement, none of them a
+pages; twenty-two of them were edited for publication after the measurement, none of them a
 benchmark answer, so a rerun may differ slightly from the published figures.
 
 Two of the bench's machines were lent for the build and went back into service, so they appear

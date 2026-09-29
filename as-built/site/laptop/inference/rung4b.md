@@ -1,5 +1,10 @@
 # Rung 4b, local: four kinds of model on compute, behind the gateway
 
+**Retired 20260929 (the owner's decision): glm-4.7-flash**, the chat and coding model below. Its routes
+(`local-chat`, `local-code`, `glm-4.7-flash-local`) are gone from the gateway and its preset is in
+`presets.retired.ini`; the rest of this page is the record of rung 4b as built and measured. The three Qwen
+models still run (README › What runs).
+
 The owner's go of 20260927. Chat and coding (the GLM-4.7-Flash already running), embeddings, a
 reranker and speech-to-text. Each kind is a named route at the gateway. A switcher loads and unloads
 the models within the 48 GiB ceiling, and supervise.sh stays the guard.

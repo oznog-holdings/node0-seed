@@ -12,7 +12,7 @@
 #             (uci-normal.awk); exit 1 and a redacted diff on a difference
 #   apply     render every package (markers <- the router's lab sections, placeholders <- the vault),
 #             compare with the router byte for byte, and import only the packages that differ, behind
-#             a 120 s rollback on the router that the agent box confirms after reachability checks.
+#             a 120 s rollback on the router (180 s when its address moves) that the agent box confirms after reachability checks.
 #             tools/router-fixture-hash.sh runs before and after; any change to it is a failure.
 #             `apply --dry-run` stops before importing. Then `expected`.
 #   expected  push the normal form to infra (/mnt/data/system/device-configs-expected/router.normal),
@@ -21,22 +21,45 @@
 # compared by sha256 and mode (a file whose whole content is <vault:ITEM> holds that item's password,
 # compared by hash). `check` and `apply` include them; infra's daily drift check covers UCI only.
 # The way back from any apply: tools/router-backup.sh first (sysupgrade -b, encrypted, in the repo).
+# Rung 6 (the cut-over, tools/rung6-cutover.sh):
+#   ROUTER=<address>  where the router is now (default 192.168.1.1; 192.168.1.4 once it is the access point)
+#   --ap        use site/router/config.ap/ (the access point), and make the ONE change to the lab's sections the
+#               orchestrator allowed in writing (20260929), in the window only: network.wan gets disabled '1'. The
+#               router moves to 192.168.1.4; the apply confirms there. Without --ap, a `disabled '1'` in the WAN
+#               block is removed again (the way back re-enables the WAN).
+#   --test-detach  with nothing to import: the address-move path run anyway (the timer, the detached reload with its
+#               marker, the bounded wait, the confirmation) at the same address; reload_config with an unchanged
+#               configuration changes nothing. The proof of that path without the window (20260929).
+#   --offline   confirm without the internet (the way back, while the upstream cable is elsewhere)
+#   The lab check: a hash of the lab's blocks (network wan/wan6, the fixture: rules) with every `disabled '1'`
+#   line ignored, before and after: equal proves nothing else in them changed. It prints only the hash.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-R="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.1"
+# from the rung 6 cut-over (20260929) the router IS the access point: config.ap and 192.168.1.4 are the defaults;
+# --rung5 selects the rung 5 configuration (site/router/config, the gateway at .1): the way back, if ever needed
+AP=1; OFFLINE=0; DRY=0; TESTD=0; for a in "$@"; do case $a in --ap) AP=1 ;; --rung5) AP=0 ;; --offline) OFFLINE=1 ;; --dry-run) DRY=1 ;; --test-detach) TESTD=1 ;; esac; done
+ROUTER=${ROUTER:-$([ $AP = 1 ] && echo 192.168.1.4 || echo 192.168.1.1)}
+CONFIRM_AT=$([ $AP = 1 ] && echo 192.168.1.4 || echo 192.168.1.1)   # where the router answers after this apply
+R="ssh -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 root@$ROUTER"
 INFRA="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.10"
-C=site/router/config; N=site/router/uci-normal.awk
+C=site/router/config; [ $AP = 1 ] && C=site/router/config.ap; N=site/router/uci-normal.awk
 pkgs() { ls "$C"; }
 normal() { awk -f $N | sort -s -t "$(printf '\t')" -k1,1; }
 repo_normal() { for p in $(pkgs); do cat "$C/$p"; done | normal; }
 live_normal() { $R "for p in $(pkgs | tr '\n' ' '); do uci export \$p; done" | normal; }
-fixture() { tools/router-fixture-hash.sh 2>/dev/null | tail -1 | grep -E '^[0-9a-f]{64}$' \
-  || { tools/router-ubus.sh login >/dev/null && tools/router-fixture-hash.sh | tail -1; }; }
+# the lab's blocks, hashed on the router (values never leave it), every `disabled '1'` line ignored
+labhash() { ssh -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 root@$1 sh -s <<'H'
+(uci export network; uci export firewall) | awk '
+  /^package /{ pkg=$2; gsub(/\047/,"",pkg); next } /^config /{ out(); hdr=$0; blk=$0 "\n"; next } /^$/{ out(); next } { blk=blk $0 "\n" }
+  function out() { if (blk != "" && ((pkg=="network" && (hdr=="config interface \047wan\047" || hdr=="config interface \047wan6\047")) || (pkg=="firewall" && blk ~ /option name \047fixture:/))) printf "%s", blk; blk="" }
+  END { out() }' | grep -v "^[[:space:]]*option disabled '1'$" | sha256sum | cut -c1-64
+H
+}
 vault_open() {
   . "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"
   BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
   trap 'bw lock >/dev/null 2>&1 || true' EXIT; bw sync >/dev/null; ITEMS=$(bw list items); bw lock >/dev/null 2>&1; unset BW_SESSION; }
-F=site/router/files
+F=site/router/files; [ $AP = 1 ] && F=site/router/files.ap   # the access point: no lease hook, no token (rung 6: Kea registers leases)
 fmode() { case $1 in etc/seed/*) echo 600 ;; usr/libexec/*) echo 755 ;; *) echo 644 ;; esac; }
 fperm() { case $(fmode "$1") in 600) echo -rw------- ;; 755) echo -rwxr-xr-x ;; *) echo -rw-r--r-- ;; esac; }   # as ls -l shows it (busybox: no stat)
 fsecret() { sed -n 's/^<vault:\(.*\)>$/\1/p' "$F/$1"; }
@@ -89,25 +112,32 @@ expected)
   repo_normal | $INFRA 'd=/mnt/data/system/device-configs-expected; mkdir -p $d; cat > $d/router.normal.new && mv $d/router.normal.new $d/router.normal && sha256sum $d/router.normal'
   echo "repository: $(repo_normal | sha256sum)" ;;
 apply)
-  dry=${2:-}
-  f0=$(fixture); echo "fixture hash before: $f0"
+  dry=$([ $DRY = 1 ] && echo --dry-run || echo)
+  f0=$(labhash $ROUTER); echo "lab sections hash before (router at $ROUTER): $f0"
   vault_open
   changed=()
   for p in $(pkgs); do
     live=$($R "uci export $p")
     # render: markers <- the router's own lab blocks (each exactly once, and every lab block needs a marker)
     want=$(export LIVE="$live"; while IFS= read -r it; do n=V_$(printf '%s' "$it" | sha256sum | cut -c1-12); export "$n=$(vault_pw "$it" | sed "s/'/'\\\\''/g")"; done < <(grep -o "<vault:[^>]*>" "$C/$p" | sort -u | sed 's/<vault://; s/>//')
-      awk -v pkg="$p" "$LAB"'
+      awk -v pkg="$p" -v ap="$AP" "$LAB"'
         BEGIN { n = split(ENVIRON["LIVE"] "\n", L, "\n"); blk = ""
           for (i = 1; i <= n; i++) { if (L[i] ~ /^config /) { hdr = L[i]; blk = L[i] "\n" } else if (L[i] == "" && blk != "") { if (islab(hdr, "\n" blk)) { labs[hdr] = blk; nlab++ } blk = "" } else if (blk != "") blk = blk L[i] "\n" } }
         /^# lab-owned \(not in the repository\): / { h = $0; sub(/^# lab-owned \(not in the repository\): /, "", h); if (!(h in labs)) { print "MISSING-LAB " h > "/dev/stderr"; bad = 1; next }
-          printf "%s", labs[h]; used[h] = 1; next }
+          b = labs[h]
+          if (pkg == "network" && h == "config interface \047wan\047") {
+            gsub(/\toption disabled \0471\047\n/, "", b)                 # the way back: the WAN enabled again
+            if (ap == 1) b = b "\toption disabled \0471\047\n" }       # --ap: the one allowed change
+          printf "%s", b; used[h] = 1; next }
         { line = $0
           while (match(line, /<vault:[^>]+>/)) { it = substr(line, RSTART + 7, RLENGTH - 8); cmd = "printf %s \"" it "\" | sha256sum | cut -c1-12"; cmd | getline hx; close(cmd)
             v = ENVIRON["V_" hx]; if (v == "") { print "NO-VALUE " it > "/dev/stderr"; bad = 1 }
             line = substr(line, 1, RSTART - 1) v substr(line, RSTART + RLENGTH) }
           print line }
         END { for (h in labs) if (!(h in used)) { print "UNMARKED-LAB " h > "/dev/stderr"; bad = 1 } exit bad }' "$C/$p")
+    if [[ $p == network ]]; then   # the one allowed change to the lab's blocks, stated (the block itself stays unprinted)
+      awk '/^config interface .wan.$/{w=1;next} /^config /{w=0} w && /option disabled .1./{f=1} END{exit !f}' <<<"$want" \
+        && echo "network: the WAN is disabled in the render (--ap)" || echo "network: the WAN is enabled in the render"; fi
     if [[ "$want" == "$live" ]]; then echo "$p: unchanged"
     else echo "$p: differs (redacted, < router, > repository):"; diff <(printf '%s\n' "$live" | normal) <(printf '%s\n' "$want" | normal) || true
       changed+=("$p"); declare "WANT_$p=$want"; fi
@@ -123,26 +153,39 @@ apply)
     if grep -q '^etc/hotplug.d/dhcp/' <<<"$fchanged"; then $R '/etc/init.d/dnsmasq restart'; echo "dnsmasq restarted (its dhcp-script)"; fi
   fi
   unset ITEMS
-  if [[ ${#changed[@]} -eq 0 ]]; then echo "nothing to apply"
+  if [[ ${#changed[@]} -eq 0 && $TESTD == 0 ]]; then echo "nothing to apply"
   elif [[ $dry == --dry-run ]]; then echo "dry run: would import ${changed[*]}"
   else
     # the rollback: copies of the packages, and a timer that restores them unless confirmed in 120 s
+    # the window: 120 s; 180 s when the router's address changes (the reload, then finding it at the new address).
+    # The wait below always ends W-50 s after the timer starts, so the checks and the confirmation fit inside it.
+    W=120; [[ $CONFIRM_AT != "$ROUTER" || $TESTD == 1 ]] && W=180; t0=$SECONDS
     $R "rm -rf /tmp/seed-apply; mkdir -m 700 /tmp/seed-apply; for p in ${changed[*]}; do cp -p /etc/config/\$p /tmp/seed-apply/\$p; done
-        ( sleep 120; if [ ! -e /tmp/seed-apply/confirmed ]; then for p in ${changed[*]}; do cp -p /tmp/seed-apply/\$p /etc/config/\$p; done; reload_config; logger -t seed-apply 'not confirmed: rolled back ${changed[*]}'; fi; rm -rf /tmp/seed-apply ) </dev/null >/dev/null 2>&1 &"
+        ( sleep $W; if [ ! -e /tmp/seed-apply/confirmed ]; then for p in ${changed[*]}; do cp -p /tmp/seed-apply/\$p /etc/config/\$p; done; reload_config; logger -t seed-apply 'not confirmed: rolled back ${changed[*]}'; fi; rm -rf /tmp/seed-apply ) </dev/null >/dev/null 2>&1 &"
     for p in "${changed[@]}"; do v=WANT_$p; printf '%s\n' "${!v}" | $R "uci import $p"; echo "$p: imported"; done
-    $R 'reload_config'; sleep 15
-    ok=1
-    $R true || ok=0
-    ping -c2 -W2 192.168.1.10 >/dev/null || ok=0
-    host -W 3 infra.seed.example.com 192.168.1.12 | grep -q 'has address 192\.168\.1\.10$' || ok=0
-    curl -s -o /dev/null -m 5 https://www.google.com/ || ok=0
-    if [[ $ok == 1 ]]; then $R 'touch /tmp/seed-apply/confirmed'; echo "confirmed (router, infra, DNS and the internet reachable)"
-    else echo "NOT confirmed: the router rolls back within 120 s of the import"; exit 1; fi
+    if [[ $CONFIRM_AT == "$ROUTER" && $TESTD == 0 ]]; then $R 'reload_config'; sleep 15
+    else  # the router's address changes: reload detached (this session drops), then find it at its new address
+      # busybox has no nohup (20260929: the window's reload never ran); setsid, and a marker that proves it started
+      st=$($R 'setsid sh -c "touch /tmp/seed-apply/reloading; sleep 2; logger -t seed-apply \"reload (the address moves)\"; reload_config" </dev/null >/dev/null 2>&1 & sleep 1; [ -e /tmp/seed-apply/reloading ] && echo started')
+      [[ $st == started ]] || { echo "NOT confirmed (failed: the detached reload didn't start): the router rolls back within $W s of the import"; exit 1; }
+      echo "reload started on the router; looking for it at $CONFIRM_AT"
+      until ssh -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=3 root@$CONFIRM_AT true 2>/dev/null; do
+        (( SECONDS - t0 < W - 50 )) || break; sleep 2; done
+      echo "at $CONFIRM_AT after $((SECONDS - t0)) s of the $W s window"; sleep 3; fi
+    RC="ssh -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 root@$CONFIRM_AT"
+    ok=1; why=""
+    $RC true || { ok=0; why="$why router-not-at-$CONFIRM_AT"; }
+    ping -c2 -W2 192.168.1.10 >/dev/null || { ok=0; why="$why infra"; }
+    host -W 3 infra.seed.example.com 192.168.1.15 | grep -q 'has address 192\.168\.1\.10$' || { ok=0; why="$why dns-ns1"; }
+    if [ $AP = 0 ] && [ $OFFLINE = 0 ]; then curl -s -o /dev/null -m 5 https://www.google.com/ || { ok=0; why="$why internet"; }; fi
+    if [[ $ok == 1 ]]; then $RC 'touch /tmp/seed-apply/confirmed'; echo "confirmed at $CONFIRM_AT (router, infra, DNS$([ $AP = 0 ] && [ $OFFLINE = 0 ] && echo ', the internet'))"
+    else echo "NOT confirmed (failed:$why): the router rolls back within $W s of the import"; exit 1; fi
   fi
-  f1=$(fixture); echo "fixture hash after:  $f1"
-  [[ $f0 == "$f1" ]] || { echo "FIXTURE HASH CHANGED"; exit 1; }
+  at=$CONFIRM_AT; [[ $dry == --dry-run || ( ${#changed[@]} -eq 0 && $TESTD == 0 ) ]] && at=$ROUTER   # nothing moved: still where it was
+  f1=$(labhash $at); echo "lab sections hash after (router at $at): $f1"
+  [[ $f0 == "$f1" ]] || { echo "LAB SECTIONS CHANGED beyond disabled '1'"; exit 1; }
   [[ $dry == --dry-run ]] && exit 0   # a dry run never moves infra's expected copy
-  "$0" check
-  "$0" expected ;;
+  ROUTER=$CONFIRM_AT "$0" check $([ $AP = 1 ] && echo --ap)
+  ROUTER=$CONFIRM_AT "$0" expected $([ $AP = 1 ] && echo --ap) ;;
 *) sed -n '2,22p' "$0"; exit 2 ;;
 esac

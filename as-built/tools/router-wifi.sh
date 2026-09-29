@@ -21,7 +21,7 @@
 #   on|off   switch radio1 on or off; the configuration stays
 #   status   radios, the running access points, the seed sections (no passphrase)
 set -euo pipefail
-R="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.1"
+R="ssh -o BatchMode=yes -o LogLevel=ERROR root@${ROUTER:-192.168.1.4}"   # the router: the access point at .4 from rung 6
 case ${1:-status} in
 stage|apply)
   $R 'uci -q batch' <<'EOF'

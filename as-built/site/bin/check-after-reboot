@@ -19,6 +19,9 @@ r=$(ssh -o ConnectTimeout=10 $INFRA '
   echo "unhealthy $(docker ps --filter health=unhealthy --format "{{.Names}}" 2>/dev/null | tr "\n" " ")"
   echo "agentvm $(virsh domstate agentvm 2>/dev/null)"
   echo "sshd-tailnet $(ss -lnt | grep -c " 100.64.0.10:22 ")"
+  echo "hostaccess $(grep -oP "^DOCKER_ALLOW_ACCESS=\"\K[^\"]+" /boot/config/docker.cfg) $(ip -br link show shim-br0 2>/dev/null | awk "{print \$2}")"
+  echo "ns2direct $(nslookup infra.seed.example.com 192.168.1.16 2>/dev/null | awk "/^Name/{getline; print \$2}" | head -1)"
+  echo "resolvopts $(grep -cx "options timeout:1 attempts:2" /etc/resolv.conf) $(grep -c "seed/resolv-options.sh" /boot/config/go)"
   echo "resolvers $(awk "/^nameserver/{print \$2}" /etc/resolv.conf | tr "\n" " ")"
   echo "resolves $(nslookup vault.seed.example.com 2>/dev/null | awk "/^Name/{getline; print \$2}" | head -1)"
   echo "alerts $(curl -s 127.0.0.1:9090/api/v1/alerts | jq -r "[.data.alerts[] | select(.state==\"firing\") | .labels.alertname] | unique | join(\",\")" 2>/dev/null)"
@@ -36,9 +39,15 @@ miss=""; for x in "$(dirname "$0")"/../infra/templates/my-*.xml; do n=$(basename
 [[ -z $miss ]] && ok "every container with a template in the repo is running" || bad "not running (template in the repo):$miss"
 [[ -z $(v unhealthy | tr -d ' ') ]] && ok "no unhealthy container" || bad "unhealthy: $(v unhealthy)"
 [[ $(v agentvm) == running ]] && ok "agentvm running" || bad "agentvm: $(v agentvm)"
-# infra's own resolver is the router (Unraid network settings, DNS_SERVER1): the router reaches both
-# ns1 and ns2, while infra's host can't reach ns2, its own macvlan container (rung 5; F-TWO-ADDRESSES)
-[[ $(v resolvers) == "192.168.1.1 " ]] && ok "infra resolves through the router (192.168.1.1)" || bad "infra's resolvers: $(v resolvers)(want the router only: never 192.168.1.16)"
+# infra resolves through ns2 (itself, 192.168.1.16) first and ns1 (192.168.1.15, core) second (Unraid network settings,
+# DNS_SERVER1/2; the owner's decision 3, 20260929). infra's host reaches its own macvlan container only through
+# Unraid's shim (Settings > Docker > Host access to custom networks: DOCKER_ALLOW_ACCESS=yes, interface shim-br0);
+# without it .16 times out and every lookup waits ~5 s for ns1 (rung 5 F-TWO-ADDRESSES)
+[[ $(v hostaccess) == "yes UP" ]] && ok "Docker host access to custom networks on (shim-br0 up)" || bad "Docker host access: '$(v hostaccess)' (want yes and shim-br0 UP): infra can't reach ns2"
+[[ $(v ns2direct) == 192.168.1.10 ]] && ok "infra reaches ns2 (192.168.1.16) directly" || bad "infra asks ns2 directly: '$(v ns2direct)'"
+# the resolver options from /boot/config/go (site/infra/boot/, 20260929): with ns2 down a lookup waits ~1 s, not 5
+[[ $(v resolvopts) == "1 1" ]] && ok "infra's resolver options (timeout:1 attempts:2), set at boot by go" || bad "infra's resolver options: '$(v resolvopts)' (want the options line and the go hook: site/infra/boot/)"
+[[ $(v resolvers) == "192.168.1.16 192.168.1.15 " ]] && ok "infra resolves through ns2, then ns1" || bad "infra's resolvers: $(v resolvers)(want 192.168.1.16 192.168.1.15)"
 # site2 pulls the replica over the tailnet: sshd must listen there too (User Scripts sshd-tailnet, at array start)
 [[ $(v sshd-tailnet) == 1 ]] && ok "sshd listens on infra's tailnet address (site2's pull)" || bad "sshd not on 100.64.0.10:22: run /mnt/data/system/seed-bin/sshd-tailnet.sh"
 [[ $(v resolves) == 192.168.1.10 ]] && ok "infra resolves the site's names" || bad "infra resolves vault.seed.example.com to '$(v resolves)'"

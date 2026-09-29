@@ -25,7 +25,7 @@ tests:
         alertname: InferenceBackendStale
         exp_alerts:
           - exp_labels: { severity: warning, instance: infra }
-            exp_annotations: { summary: "No completion from glm-4.7-flash-local (compute) through the gateway for 25m 0s. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+            exp_annotations: { summary: "No answer from compute (local-embed) through the gateway for 25m 0s. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
       - eval_time: 35m
         alertname: InferenceProbeNeverSucceeded
         exp_alerts: []

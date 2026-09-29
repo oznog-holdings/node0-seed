@@ -34,7 +34,7 @@ model_list:
   # use it (today the agent box's `agent` key); nothing scheduled holds it (the monitoring probe
   # doesn't). Limits: at most 2 in flight here (max_parallel_requests); 60 requests an hour on the
   # key (model_rpm_limit with LITELLM_RATE_LIMIT_WINDOW_SIZE=3600, rendered into litellm.env). When
-  # z.ai refuses or the limit is reached, router_settings falls back to the local model.
+  # z.ai refuses or the limit is reached, the request fails (its local fallback was retired 20260929).
   - model_name: glm-5.3-coding
     litellm_params:
       model: openai/glm-5.3
@@ -48,39 +48,12 @@ model_list:
       tags: [external, subscription]
       traffic: coding
 
-  # Local backends (rung 4): one entry per compute box. The model and its ceiling are pinned in
-  # site/laptop/inference/pins; the Mac answers only this key (vault "compute llama api key").
-  # Cost 0: local tokens are still counted per key; spend stays the hosted money.
-  - model_name: glm-4.7-flash-local
-    litellm_params:
-      model: openai/glm-4.7-flash
-      api_base: http://compute.seed.example.com:8080/v1
-      api_key: os.environ/COMPUTE_LLAMA_API_KEY
-      timeout: 600                  # the first request after idle reloads the model (sleep-idle 900 s)
-      input_cost_per_token: 0
-      output_cost_per_token: 0
-
-  # Rung 4b (site/laptop/inference/rung4b.md): one named route per kind, all on compute's router
-  # (llama.cpp router mode; the model is chosen by name there). Only local-code falls back to hosted
-  # (below); the others fail closed: no fallback, and no hosted deployment shares their names.
-  - model_name: local-chat          # chat: fails closed (the only hosted plan is for coding tools)
-    litellm_params:
-      model: openai/glm-4.7-flash
-      api_base: http://compute.seed.example.com:8080/v1
-      api_key: os.environ/COMPUTE_LLAMA_API_KEY
-      timeout: 600
-      input_cost_per_token: 0
-      output_cost_per_token: 0
-  - model_name: local-code          # coding: falls back to glm-5.3-coding (router_settings)
-    litellm_params:
-      model: openai/glm-4.7-flash
-      api_base: http://compute.seed.example.com:8080/v1
-      api_key: os.environ/COMPUTE_LLAMA_API_KEY
-      timeout: 600
-      input_cost_per_token: 0
-      output_cost_per_token: 0
-    model_info:
-      traffic: coding
+  # Local backends (rung 4, 4b): compute's llama.cpp router (site/laptop/inference/rung4b.md); the Mac answers only
+  # this key (vault "compute llama api key"). Cost 0: local tokens are still counted per key.
+  # 20260929 (the owner's decision): the chat model glm-4.7-flash is retired on compute, and with it the routes
+  # glm-4.7-flash-local, local-chat and local-code (they are not pointed anywhere else, so nothing silently goes
+  # hosted; a later local model takes the names). Its presets and benchmarks stay as the rung 4b record.
+  # The remaining routes fail closed: no fallback, and no hosted deployment shares their names.
   - model_name: local-embed         # embeddings: fails closed (another model's vectors don't compare)
     litellm_params:
       model: openai/qwen3-embedding-4b
@@ -111,10 +84,9 @@ model_list:
       mode: audio_transcription
 
 router_settings:
-  # z.ai refusing (429, 5xx, auth) or the limit reached: the same request goes to the Mac.
-  # local-code: the Mac down or refusing, the same request goes to z.ai, for keys that also name
-  # glm-5.3-coding (rung4b.md). No other local route has a fallback: they fail closed.
-  fallbacks: [{"glm-5.3-coding": ["glm-4.7-flash-local"]}, {"local-code": ["glm-5.3-coding"]}]
+  # No fallbacks since 20260929: glm-5.3-coding fell back to glm-4.7-flash-local, and local-code to glm-5.3-coding;
+  # both local ends were retired with glm-4.7-flash. z.ai refusing now fails the request.
+  fallbacks: []
   num_retries: 0
 
 general_settings:

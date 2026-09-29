@@ -8,6 +8,13 @@ stays inside seed, and the ceiling was recalculated for a dedicated machine (bel
 
 ## What runs (all pinned in `pins`)
 
+**From 20260929 (the owner's decision): GLM-4.7-Flash is retired.** The router serves the three Qwen
+models of rung 4b (embedding, reranker, speech-to-text), none loaded at start; `MODELS_MAX=3`. The gateway's
+`glm-4.7-flash-local`, `local-chat` and `local-code` routes went with it, and its memory (33,810 MiB for its
+process) is free for a later Qwen model. GLM's preset is kept in `presets.retired.ini`, its pins in `pins`, its
+model file on disk, and its benchmarks in `bench/` and rung4b.md: the record of rung 4b. The monitoring probe
+now asks `local-embed` for an embedding. What follows is the record as it was.
+
 **From 20260928, rung 4b (rung4b.md):** llama-server runs in **router mode**, with four models from
 presets.ini: glm-4.7-flash (chat and coding, loaded at start), qwen3-embedding-4b, qwen3-reranker-0.6b
 and qwen3-asr-1.7b. Each is loaded on its first request, and all four fit at once (working peak

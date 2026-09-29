@@ -16,13 +16,13 @@ dry-run only; **the power test itself waits for the owner** (`ups-power-test.md`
 | agentvm | inside infra | stopped by Unraid as above; no client of its own |
 | agent box | a UPS **battery** outlet (the owner, 20260928) | **rides** (orchestrator: rides the UPS and is not told to shut down; warm restarts only). No client |
 | core | plug4, behind the UPS | **rides and reports, never halts.** Reads infra's apcupsd every 15 s (`seed-power-watch`; every minute until 20260927). Any status but mains (ONLINE, alone or with TRIM/BOOST) is a power event: ONBATT, LOWBATT, SHUTTING DOWN, COMMLOST, and so on. One ntfy line per change, with apcupsd's status text and its thresholds; metrics for the monitoring. The apcupsd daemon is installed (for `apcaccess`) but **masked** |
-| router, switch | wall outlet (deviation D.07) | go dark at the cut |
+| router, switch | wall outlet (deviation D.07) until 20260929; **UPS battery outlets from 20260929** (rung 6) | go dark at the cut (until 20260929); ride the UPS since |
 | compute | the UPS's **surge-only** (non-battery) outlet (the owner, 20260928): behind plug1, not battery-backed | **rides on its own battery**: at a cut it loses AC and the MacBook's battery carries it. Not a UPS client |
 
 ## Which alert reaches the phone in a power cut (20260928)
 
 **On this bench it's core's watch** (`seed-power-watch`).
-- The switch and the router are on a wall outlet (D.07). At the cut, nothing from infra reaches core's
+- (Until 20260929.) The switch and the router are on a wall outlet (D.07); from 20260929 on the UPS (rung 6), with the firewall. At the cut, nothing from infra reaches core's
   ntfy or the internet.
 - core, on the UPS, keeps running but can't read infra either. After 3 minutes of misses it sends
   **"Power: UPS state unreadable"**: that's the power alert (it reached the phone on 20260927 at

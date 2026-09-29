@@ -4,6 +4,7 @@
 RUNTIME_TAG=b11146                  # llama.cpp v0.5.0 (nightly-tag.txt of the v0.5.0 release), 20260923
 RUNTIME_ASSET=llama-b11146-bin-macos-arm64.tar.gz
 RUNTIME_SHA256=1ad3f9eff80edb9dbef4259ad564d1720612ef7eea48fa4afed0e54f5f3d5711   # GitHub release asset digest
+# glm-4.7-flash: RETIRED 20260929 (the owner's decision): not served (presets.retired.ini); its pins stay as the rung 4b record
 MODEL_REPO=unsloth/GLM-4.7-Flash-GGUF
 MODEL_REV=0d32489ecb9db6d2a4fc93bd27ef01519f95474d
 MODEL_FILE=GLM-4.7-Flash-Q8_0.gguf     # 20260927 benchmark: Q8_0 in the 48 GiB ceiling (was UD-Q3_K_XL under 16 GiB)
@@ -31,4 +32,4 @@ RESUME_FREE=60                      # ... and start it again at this free % (the
 CALM_S=900                          # ... after this many calm seconds
 LISTEN=192.168.1.20
 PORT=8080
-MODELS_MAX=4                        # the router: at most this many models loaded (all four fit: rung4b.md, rule 5)
+MODELS_MAX=3                        # the router: at most this many models loaded (the three Qwen models; glm-4.7-flash retired 20260929)

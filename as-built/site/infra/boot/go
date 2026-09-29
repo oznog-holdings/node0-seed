@@ -1,0 +1,6 @@
+#!/bin/bash
+# infra's /boot/config/go (Unraid runs it at the end of boot). The site's resolver options first (site/infra/boot/
+# resolv-options.sh, 20260929), so every container copies them when the array starts Docker.
+[ -f /boot/config/seed/resolv-options.sh ] && bash /boot/config/seed/resolv-options.sh   # the flash is mounted without exec
+# Start the Management Utility
+/usr/local/sbin/emhttp

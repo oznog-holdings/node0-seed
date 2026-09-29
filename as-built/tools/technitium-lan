@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# tools/technitium-lan.py with ns1's admin password from the site vault (vault -> environment, never argv).
+set -euo pipefail
+cd "$(dirname "$0")/.."
+. "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"
+BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
+items=$(bw list items); bw lock >/dev/null 2>&1; unset BW_SESSION
+TECHNITIUM_PW_CORE=$(N='technitium core admin' jq -r '[.[] | select(.name==env.N)] | if length==1 then .[0].login.password else error("vault item not unique") end' <<<"$items"); unset items
+export TECHNITIUM_PW_CORE; exec python3 tools/technitium-lan.py "${1:-list}"

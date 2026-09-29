@@ -1,0 +1,81 @@
+#!/bin/sh
+# seed (rung 6, phase 3): the firewall's half of the cut-over. tools/rung6-cutover.sh copies it to
+# /root/seed-cutover-fw and runs it; it needs nothing off the box.
+#   check      what would change, and that everything it uses is here; changes nothing
+#   gateway [ADDR [KEA]]  the LAN (re1) 192.168.1.2 -> ADDR (default 192.168.1.1) and Kea's interfaces = KEA (default
+#              lan,opt1,opt2: main DHCP on; the rehearsal moves to 192.168.1.3 with opt1,opt2, main DHCP off); saved
+#              with write_config (the box's history keeps both sides). Before that, /conf/seed-rung5.xml
+#              = the configuration now. Runs detached: unless /tmp/seed-cutover-confirmed appears within
+#              180 s it runs `back` by itself (the agent box confirms after it reaches 192.168.1.1).
+#   back       /conf/seed-rung5.xml restored (LAN 192.168.1.2, Kea on opt1,opt2 only), everything reloaded
+#   wan        the WAN's state as booleans only: re0's carrier, a TCP connection to the gateway's port 53
+#              from re0's address (the check), and a ping (information only: the upstream blocks it).
+#              The gateway's address is read here and never printed (the owner's decision 1).
+# Log: /tmp/seed-cutover-fw.log (the steps, never a value of the WAN's).
+set -u
+LOG=/tmp/seed-cutover-fw.log; SAVED=/conf/seed-rung5.xml; OK=/tmp/seed-cutover-confirmed
+log() { echo "$(date -u +%FT%TZ) $*" >> $LOG; }
+lanip() { ifconfig re1 | awk '/inet /{print $2}' | tr '\n' ' ' | sed 's/ $//'; }
+keaifs() { php -r 'require_once "config.inc"; $c = OPNsense\Core\Config::getInstance()->object(); echo (string)$c->OPNsense->Kea->dhcp4->general->interfaces;'; }
+# the same reloads the web interface runs for a LAN address change, plus the services bound to it
+reload_all() {
+  configctl interface reconfigure lan >/dev/null
+  want=$(php -r 'require_once "config.inc"; echo (string)OPNsense\Core\Config::getInstance()->object()->interfaces->lan->ipaddr;')
+  for a in $(ifconfig re1 | awk '/inet /{print $2}'); do [ "$a" = "$want" ] || ifconfig re1 inet "$a" -alias; done
+  configctl filter reload >/dev/null
+  configctl webgui restart >/dev/null
+  configctl openssh restart >/dev/null
+  pluginctl -s ntpd restart >/dev/null 2>&1
+  configctl template reload OPNsense/Kea >/dev/null
+  configctl kea restart >/dev/null
+  log "reloaded: re1 $(lanip), Kea interfaces $(keaifs)"
+}
+back() {
+  [ -f $SAVED ] || { log "back: no $SAVED"; echo "no $SAVED"; exit 1; }
+  cp -p $SAVED /conf/config.xml && log "back: /conf/config.xml = $SAVED"
+  reload_all; rm -f $OK; echo "back: re1 $(lanip), Kea $(keaifs)"
+}
+case ${1:-check} in
+check)
+  for c in configctl pluginctl php ifconfig daemon; do command -v $c >/dev/null || { echo "missing: $c"; exit 1; }; done
+  for a in 'interface reconfigure' 'filter reload' 'webgui restart' 'openssh restart' 'template reload' 'kea restart'; do
+    f=/usr/local/opnsense/service/conf/actions.d/actions_${a%% *}.conf; grep -q "^\[${a#* }\]" $f || { echo "missing action: $a"; exit 1; }; done
+  [ -d /usr/local/opnsense/service/templates/OPNsense/Kea ] || { echo "missing: the Kea template"; exit 1; }
+  echo "re1 $(lanip) -> 192.168.1.1; Kea interfaces $(keaifs) -> lan,opt1,opt2; the tools and actions present" ;;
+gateway)
+  TO=${2:-192.168.1.1}; KEA=${3:-lan,opt1,opt2}
+  case $TO in 192.168.1.1|192.168.1.3) ;; *) echo "gateway: the address is 192.168.1.1 or 192.168.1.3 (the rehearsal)"; exit 2 ;; esac
+  case $KEA in lan,opt1,opt2|opt1,opt2) ;; *) echo "gateway: Kea's interfaces are lan,opt1,opt2 or opt1,opt2"; exit 2 ;; esac
+  [ "$(lanip)" = 192.168.1.2 ] || { echo "re1 is $(lanip), not 192.168.1.2: nothing done"; exit 1; }
+  cp -p /conf/config.xml $SAVED; rm -f $OK; : > $LOG; log "gateway: saved $SAVED; to $TO, Kea $KEA"
+  SEED_TO=$TO SEED_KEA=$KEA php <<'EOF' >> $LOG 2>&1
+<?php
+require_once 'config.inc'; require_once 'util.inc'; require_once 'interfaces.inc';
+global $config;
+$config['interfaces']['lan']['ipaddr'] = getenv('SEED_TO');
+$config['OPNsense']['Kea']['dhcp4']['general']['interfaces'] = getenv('SEED_KEA');
+write_config('seed rung 6: the LAN to ' . getenv('SEED_TO') . ', Kea on ' . getenv('SEED_KEA'));
+echo "written\n";
+EOF
+  grep -q '^written$' $LOG || { log "gateway: write_config failed; nothing changed"; echo "write_config failed"; exit 1; }
+  # the rest detached: this ssh session ends when sshd moves to the new address
+  daemon -f sh -c "sleep 1; /root/seed-cutover-fw reload-and-wait" ; echo "gateway: started (confirm within 180 s)" ;;
+reload-and-wait)
+  reload_all
+  i=0; while [ $i -lt 180 ]; do [ -e $OK ] && { log "confirmed"; exit 0; }; sleep 1; i=$((i+1)); done
+  log "not confirmed in 180 s: back"; back >/dev/null ;;
+back) back ;;
+wan)
+  c=$(ifconfig re0 | awk '/status:/{print $2}')
+  # the WAN gateway's address from the configuration (the owner's entry), else the default route; kept in a variable
+  gw=$(php -r 'require_once "config.inc"; foreach (OPNsense\Core\Config::getInstance()->object()->xpath("//gateway_item") as $g) if ((string)$g->interface == "wan") { echo (string)$g->gateway; break; }' 2>/dev/null)
+  [ -n "$gw" ] || gw=$(route -n get default 2>/dev/null | awk '/gateway:/{print $2}')
+  # the upstream allows the site's WAN address only DNS (tcp/udp 53) and NTP to its own addresses, ping never
+  # (window 2, 20260929): the check is a TCP connection to the gateway's port 53 from re0's address, which can
+  # only succeed once the upstream has learned re0's MAC. The ping is information only.
+  src=$(ifconfig re0 | awk '/inet /{print $2; exit}')
+  if [ -n "$gw" ] && [ -n "$src" ] && nc -z -w 3 -s "$src" "$gw" 53 >/dev/null 2>&1; then g=open; else g=closed; fi
+  if [ -n "$gw" ] && ping -c 2 -t 3 "$gw" >/dev/null 2>&1; then p=answers; else p=silent; fi; unset gw src
+  echo "re0 $c; the WAN gateway tcp53 $g; ping $p" ;;
+*) echo "usage: seed-cutover-fw check|gateway|back|wan"; exit 2 ;;
+esac

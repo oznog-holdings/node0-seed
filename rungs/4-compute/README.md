@@ -71,6 +71,11 @@ near-lossless. A 3-bit quant, which existed only to fit the old 16 GiB ceiling, 
 faster. Twenty exact-answer tasks are too few to show what that quantisation loses, so its
 one extra point (19 against 18) decides nothing.
 
+**Retired 20260929.** GLM-4.7-Flash was stopped on the compute Mac on 20260929 to make room for
+Qwen3.8-27B, the local model for the site's long-running agent, where Qwen is the better fit for
+agentic work. Its configuration, pins, benchmarks and model file stay as this rung's record, and
+the figures below are what it measured.
+
 **Other models worth trying.** We chose GLM-4.7-Flash for parity with the hosted model, not as
 the best local model. In Christoph's own use, Qwen 3.8 has been one of the most capable local
 models, and [Bonsai 2](https://huggingface.co/collections/prism-ml/bonsai-2) does well at

@@ -90,7 +90,9 @@ re-run that test after any change to the routes.
 for GLM-5.3, from the same family as the local model. The gateway allows it 2 requests in flight
 and enforces the plan's 60 requests an hour on the one key allowed to use it. Our plan covers
 coding tools. Putting it behind a gateway was Christoph's decision, so read your own plan's terms
-before you do the same.
+before you do the same. Since the local GLM model was retired on 20260929 (rung 4), the hosted
+model has no local fallback: a refusal from the plan now fails the request rather than quietly
+running locally.
 
 ## Costs and measurements
 

@@ -135,6 +135,25 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning }
             exp_annotations: { summary: "The router's configuration differs from the repository (-1 lines; -1: no expected copy). The diff: infra seed-state/router-drift.diff; site/router/config-tool check." }
+  # the firewall's configuration: equal (0) is quiet; a difference, no expected copy (-1) or no export (-2) fires
+  - interval: 5m
+    input_series:
+      - series: 'seed_firewall_config_drift_lines'
+        values: '0x3 7x3 -2x3'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: FirewallConfigDrift
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: FirewallConfigDrift
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations: { summary: "The firewall's configuration differs from the repository (7 lines; -1: no expected copy, -2: no export). The diff: infra seed-state/firewall-drift.diff." }
+      - eval_time: 45m
+        alertname: FirewallConfigDrift
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations: { summary: "The firewall's configuration differs from the repository (-2 lines; -1: no expected copy, -2: no export). The diff: infra seed-state/firewall-drift.diff." }
   # a dormant repository (its machine stopped writing on purpose: seed-metrics.sh DORMANT, 20260928)
   # never fires BackupStale however old; a machines repository as old still does
   - interval: 5m

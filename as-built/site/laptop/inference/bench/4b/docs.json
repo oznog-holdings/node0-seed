@@ -1827,7 +1827,7 @@
 {
 "id": 365,
 "src": "content/node0/lessons/network/4-12.md",
-"text": "There is a second-order dependency worth knowing about. Because the key now carries the authorisation, rebuilding a primary from scratch rather than restoring its data leaves every secondary still holding the old key, and replication stops with nothing raising an alarm about it. Verify the key on each secondary explicitly after any rebuild, rather than assuming a restore carried it."
+"text": "There is a second-order dependency worth knowing about. Because the key now carries the authorisation, rebuilding a primary from scratch rather than restoring its data leaves every secondary still holding the old key, and replication stops, and at the time nothing raised an alarm about it. An alert on it is now in place (Christoph, 20260929). Verify the key on each secondary explicitly after any rebuild all the same, rather than assuming a restore carried it."
 },
 {
 "id": 366,
@@ -2562,7 +2562,7 @@
 {
 "id": 512,
 "src": "content/node0/lessons/power/5-15.md",
-"text": "The honest version of this lesson is that the fix was luck, and luck is not a check. What should have caught it is an absence check. A UPS that is in the fleet's inventory and was previously reporting, and then stops, is itself the signal, independent of whatever state it last reported. That shape generalises well past power hardware, to any client, exporter or agent that reports in on a schedule. Alert on the gap in the stream, not only on the contents of the stream."
+"text": "The honest version of this lesson is that the fix was luck, and luck is not a check. What should have caught it is an absence check. A UPS that is in the fleet's inventory and was previously reporting, and then stops, is itself the signal, independent of whatever state it last reported. That shape generalises well past power hardware, to any client, exporter or agent that reports in on a schedule. Alert on the gap in the stream, not only on the contents of the stream. Node0 now has that alert (Christoph, 20260929)."
 },
 {
 "id": 513,

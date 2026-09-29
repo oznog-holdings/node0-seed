@@ -47,5 +47,5 @@ visudo -cf /etc/sudoers.d/seed.new && mv /etc/sudoers.d/seed.new /etc/sudoers.d/
 echo "4. /etc/sudoers.d/seed installed"
 
 dscacheutil -flushcache; killall -HUP mDNSResponder
-echo "done. To undo: cp /etc/hosts.before-seed-$stamp /etc/hosts; networksetup -setdnsservers \"$SVC\" 192.168.1.1;"
+echo "done. To undo: cp /etc/hosts.before-seed-$stamp /etc/hosts; networksetup -setdnsservers \"$SVC\" Empty;"
 echo "  launchctl bootout system/co.oznog.seed.backup; rm /Library/LaunchDaemons/co.oznog.seed.backup.plist /etc/sudoers.d/seed"

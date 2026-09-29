@@ -36,6 +36,11 @@ echo '# HELP seed_router_config_drift_lines Lines of the router config differing
 echo '# TYPE seed_router_config_drift_lines gauge'
 v=$(cat $state/router-drift.lines 2>/dev/null) && [[ $v =~ ^-?[0-9]+$ ]] && echo "seed_router_config_drift_lines $v"
 
+# 2c. the firewall's configuration against the repository (device-config.sh; rung 6): -1 no expected copy, -2 no export
+echo '# HELP seed_firewall_config_drift_lines Lines of the firewall config export differing from the repository (-1: no expected copy, -2: no export).'
+echo '# TYPE seed_firewall_config_drift_lines gauge'
+v=$(cat $state/firewall-drift.lines 2>/dev/null) && [[ $v =~ ^-?[0-9]+$ ]] && echo "seed_firewall_config_drift_lines $v"
+
 # 3. restore test and verify sweep (weekly-verify.sh): result as a state, skipped is its own value
 echo '# HELP seed_restore_test_result Last weekly restore test per repository (1 for the current result).'
 echo '# TYPE seed_restore_test_result gauge'
@@ -93,23 +98,24 @@ done
 
 # 8. the model gateway and the rung-4 backend (R4.11): a real request through the gateway on
 #    infra's loopback with the monitoring-probe key (secrets/monitoring-probe.env, from the vault),
-#    first to the gateway's own self-test, then to compute's model. A success writes its time to
-#    a state file, so the age survives failed runs. Counts and times only; no content kept.
+#    first to the gateway's own self-test, then to compute's router: an embedding from local-embed
+#    (qwen3-embedding-4b; the chat model glm-4.7-flash was retired 20260929, the owner's decision). A
+#    success writes its time to a state file, so the age survives failed runs. Counts and times only.
 echo '# HELP seed_gateway_selftest_success 1 if the gateway answered its self-test model.'
 echo '# TYPE seed_gateway_selftest_success gauge'
-echo '# HELP seed_inference_probe_success 1 if a completion from glm-4.7-flash-local came back through the gateway.'
+echo '# HELP seed_inference_probe_success 1 if an embedding from local-embed (compute) came back through the gateway.'
 echo '# TYPE seed_inference_probe_success gauge'
-echo '# HELP seed_inference_probe_duration_seconds Time the probe completion took.'
+echo '# HELP seed_inference_probe_duration_seconds Time the probe request took.'
 echo '# TYPE seed_inference_probe_duration_seconds gauge'
-echo '# HELP seed_inference_last_success_timestamp_seconds When a probe completion last succeeded.'
+echo '# HELP seed_inference_last_success_timestamp_seconds When a probe request last succeeded.'
 echo '# TYPE seed_inference_last_success_timestamp_seconds gauge'
 GWK=$(sed -n 's/^GATEWAY_PROBE_KEY=//p' /mnt/data/system/secrets/monitoring-probe.env 2>/dev/null)
 gw() { curl -s -m "$1" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GWK" -H 'Content-Type: application/json' \
-  --data-binary @- http://127.0.0.1:4000/v1/chat/completions; }
+  --data-binary @- "http://127.0.0.1:4000/v1/${2:-chat/completions}"; }
 st=$(printf '{"model":"seed-selftest","messages":[{"role":"user","content":"probe"}]}' | gw 15)
 echo "seed_gateway_selftest_success $([ "$st" = 200 ] && echo 1 || echo 0)"
 mkdir -p $OUT/.state; t0=$(date +%s%N)
-code=$(printf '{"model":"glm-4.7-flash-local","messages":[{"role":"user","content":"Reply with the word ok."}],"max_tokens":32,"temperature":0}' | gw 120)
+code=$(printf '{"model":"local-embed","input":"ok"}' | gw 120 embeddings)
 dur=$(awk -v a="$t0" -v b="$(date +%s%N)" 'BEGIN {printf "%.3f", (b - a) / 1e9}')
 if [ "$code" = 200 ]; then echo "seed_inference_probe_success 1"; date +%s > $OUT/.state/inference.last
 else echo "seed_inference_probe_success 0"; fi

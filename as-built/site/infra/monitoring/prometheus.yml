@@ -48,6 +48,13 @@ scrape_configs:
     file_sd_configs: [{ files: ["/etc/prometheus/targets/http-lan.yaml"] }]
     relabel_configs: *blackbox
 
+  # boxes that answer on a TCP port only (targets/tcp.yaml): the rung 6 firewall's web GUI
+  - job_name: blackbox-tcp
+    metrics_path: /probe
+    params: { module: [tcp_connect] }
+    file_sd_configs: [{ files: ["/etc/prometheus/targets/tcp.yaml"] }]
+    relabel_configs: *blackbox
+
   # the site's DNS answers the site's names
   - job_name: blackbox-dns
     metrics_path: /probe

@@ -26,3 +26,12 @@ rule=known-hosts-line re:.*restrict,from=.*AAAA\.\.\.REPLACE-WITH-YOUR-PUBLIC-KE
 rule=secret-assignment re:.*(?:_PASSWORD_FILE=|pass=%s|tokenName=).* # a setting naming a secret file's path, and token code that reads values from the vault at run time
 rule=ipv6-literal re:fd00:0:0::(?:/48)? # the placeholder the export puts in place of the router's IPv6 ULA prefix
 rule=secret-assignment re:.*password:env\.[A-Z]+.* # a jq template that takes the token from the environment at run time; no value
+rule=email-address re:seed-wifi-test@(?:rehearsal|cutover|iperf)\.service # systemd unit names of the wifi test, not addresses
+rule=email-address re:root@localhost\.local # OPNsense's stock notification recipient, a default
+rule=internal-hostname-suffix re:[\w.@-]*localhost\.local # OPNsense's stock notification recipient, a default
+rule=secret-assignment re:.*SECRET = re\.compile\(.* # the export's own pattern for which fields to redact; no value
+rule=ipv4-literal re:(?:100\.64\.0\.0|169\.254\.0\.0|233\.252\.0\.0|198\.18\.0\.0) # the tailnet (CGNAT), link-local, multicast-test and benchmarking network addresses, in OPNsense's stock private-range list
+rule=ipv6-literal re:(?:fc00|fd00|fe80):: # the unique-local and link-local prefixes, in OPNsense's stock private-range list
+rule=secret-assignment re:password = secret\) # a comment saying which vault field holds the API secret; no value
+rule=secret-assignment re:TSIG_SECRET:\s+import # code testing whether the key was read from the vault, then the next line; no value
+rule=secret-assignment re:secret: password # prose in the firewall README listing what the export redacts; no value

@@ -28,6 +28,11 @@ PRIMARY, SECONDARY = HOSTS['ns1'], HOSTS['ns2']
 TTL = 300
 BLOCKLISTS = [l.split()[0] for l in open('site/dns/technitium/blocklists') if l.strip() and not l.startswith('#')]
 DDNS_USER = 'dhcp-router'
+# rung 6: the firewall's Kea writes main-LAN leases into LAN by RFC 2136 with this TSIG key (vault item
+# "technitium ddns firewall", passed by ./push as TECHNITIUM_TSIG_FW), from the firewall's addresses only
+TSIG_NAME, TSIG_ALG = 'fw-ddns', 'hmac-sha256'
+TSIG_SECRET = os.environ.get('TECHNITIUM_TSIG_FW', '')
+FW_ADDRS = ['192.168.1.1']     # the firewall, the LAN gateway from the rung 6 cut-over (it was .2 beside the router in phase 2)
 diffs = []
 
 
@@ -97,6 +102,14 @@ def settings(t, role):
     bad = {k: v for k, v in want.items() if norm(k, have.get(k)).replace(', ', ',') != v}
     for k in bad: change(t, f'setting {k}: {norm(k, have.get(k))!r} -> {bad[k]!r}', lambda: None)
     if bad and not CHECK: t.call('settings/set', **bad)
+    # the TSIG key (primary only; the secret compared by hash, never printed)
+    if role == 'primary' and TSIG_SECRET:
+        import hashlib
+        hv = lambda s: hashlib.sha256(s.encode()).hexdigest()
+        haveK = [(k.get('keyName'), k.get('algorithmName'), hv(k.get('sharedSecret') or '')) for k in (have.get('tsigKeys') or [])]
+        if haveK != [(TSIG_NAME, TSIG_ALG, hv(TSIG_SECRET))]:
+            change(t, f'setting tsigKeys: {[k[:2] for k in haveK]} -> [({TSIG_NAME!r}, {TSIG_ALG!r})] (secret by hash)',
+                   t.call, 'settings/set', tsigKeys=f'{TSIG_NAME}|{TSIG_SECRET}|{TSIG_ALG}')
     # never a second DHCP server on the LAN (R1.17): every Technitium DHCP scope disabled
     for s in t.call('dhcp/scopes/list')['scopes']:
         if s.get('enabled'):
@@ -150,10 +163,20 @@ def primary(t):
         for r in sorted(managed - want): change(t, f'{zone}: delete {r[0]} {r[1]} {r[2]}', delete, t, zone, *r)
         opts = t.call('zones/options/get', zone=zone) if zone in have_zones else {}
         wantopt = {'zoneTransfer': 'UseSpecifiedNetworkACL', 'notify': 'SpecifiedNameServers', 'update': 'Deny'}
+        if zone == LAN and TSIG_SECRET:
+            # dynamic updates from the firewall only, signed with its key, for lease names only (A, DHCID)
+            wantopt['update'] = 'UseSpecifiedNetworkACL'
+            pol = [{'tsigKeyName': TSIG_NAME, 'domain': f'*.{LAN}', 'allowedTypes': ['A', 'DHCID']}]
+            haveacl = [str(x) for x in opts.get('updateNetworkACL') or []]
+            havepol = [{'tsigKeyName': p.get('tsigKeyName'), 'domain': p.get('domain'), 'allowedTypes': sorted(p.get('allowedTypes') or [])} for p in opts.get('updateSecurityPolicies') or []]
+            if opts.get('update') != wantopt['update'] or haveacl != FW_ADDRS or havepol != pol:
+                change(t, f'{zone}: dynamic updates from {FW_ADDRS} with key {TSIG_NAME} for *.{LAN} A, DHCID only',
+                       t.call, 'zones/options/set', zone=zone, update=wantopt['update'], updateNetworkACL=','.join(FW_ADDRS),
+                       updateSecurityPolicies=f'{TSIG_NAME}|*.{LAN}|A,DHCID')
         acl = [str(x) for x in opts.get('zoneTransferNetworkACL') or []]
         nfy = [str(x) for x in opts.get('notifyNameServers') or []]
         if any(opts.get(k) != v for k, v in wantopt.items()) or acl != [SECONDARY] or nfy != [SECONDARY]:
-            change(t, f'{zone}: options zone transfer to {SECONDARY} only, notify {SECONDARY}, no dynamic updates',
+            change(t, f'{zone}: options zone transfer to {SECONDARY} only, notify {SECONDARY}, dynamic updates: {wantopt["update"]}',
                    t.call, 'zones/options/set', zone=zone, zoneTransferNetworkACL=SECONDARY, notifyNameServers=SECONDARY, **wantopt)
     say(f'{t.name}: zones {ZONE}, {LAN}, {REV} checked (primary)')
 
@@ -175,27 +198,29 @@ def secondary(t):
 
 # --- the router's credential: may modify the lease subzone and nothing else ------------------------
 def ddns_user(t):
+    """rung 6 (the cut-over, 20260929): the router's lease hook is retired, Kea on the firewall registers leases
+    (TSIG fw-ddns). The router's user stays as a record but is revoked: disabled, its API token sessions deleted,
+    no permission on any zone. (Deleting the user, or its vault item, is the owner's call.)"""
     users = {u['username'] for u in t.call('admin/users/list')['users']}
     if DDNS_USER not in users:
-        # token-only user: its password is random and never kept (its API token is in the vault)
-        change(t, f'user {DDNS_USER}: create (token only)', t.call, 'admin/users/create',
-               user=DDNS_USER, pw=secrets.token_urlsafe(32), displayName='the router: DHCP leases into lan.' + ZONE)
-    if CHECK and DDNS_USER not in users: return
+        say(f'{t.name}: {DDNS_USER}: absent'); return
     u = t.call('admin/users/get', user=DDNS_USER)
+    if not u.get('disabled'):
+        change(t, f'user {DDNS_USER}: disable (revoked at the rung 6 cut-over)', t.call, 'admin/users/set', user=DDNS_USER, disabled='true')
     if u.get('memberOfGroups'):
         change(t, f'user {DDNS_USER}: groups {u["memberOfGroups"]} -> none', t.call, 'admin/users/set', user=DDNS_USER, memberOfGroups='')
+    for s in t.call('admin/sessions/list')['sessions']:
+        if s.get('username') == DDNS_USER:
+            change(t, f'user {DDNS_USER}: delete its {s.get("type")} session "{s.get("tokenName")}" (the token revoked)',
+                   t.call, 'admin/sessions/delete', partialToken=s['partialToken'])
     p = t.call('zones/permissions/get', zone=LAN)
     up = {x['username']: x for x in p.get('userPermissions', [])}
-    mine = up.get(DDNS_USER)
-    # view, modify and delete on the lease subzone (a released lease is a record deletion, which needs
-    # the zone's Delete permission: tested 20260929); nothing on any other zone or section
-    if not mine or not (mine['canView'] and mine['canModify'] and mine['canDelete']):
+    if DDNS_USER in up:
         rows = [f'{n}|{str(x["canView"]).lower()}|{str(x["canModify"]).lower()}|{str(x["canDelete"]).lower()}' for n, x in up.items() if n != DDNS_USER]
-        rows.append(f'{DDNS_USER}|true|true|true')
         grows = [f'{x["name"]}|{str(x["canView"]).lower()}|{str(x["canModify"]).lower()}|{str(x["canDelete"]).lower()}' for x in p.get('groupPermissions', [])]
-        change(t, f'{LAN}: {DDNS_USER} may view, modify and delete', t.call, 'zones/permissions/set', zone=LAN,
+        change(t, f'{LAN}: {DDNS_USER}: no permission', t.call, 'zones/permissions/set', zone=LAN,
                userPermissions='|'.join(rows), groupPermissions='|'.join(grows))
-    say(f'{t.name}: {DDNS_USER}: no groups; view, modify and delete on {LAN} only')
+    say(f'{t.name}: {DDNS_USER}: revoked (disabled, no token session, no zone permission)')
 
 
 def main():

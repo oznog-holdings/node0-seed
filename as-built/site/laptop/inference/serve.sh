@@ -1,6 +1,6 @@
 #!/bin/bash
 # The inference backend: llama-server in router mode (rung4b.md). The router loads the models in
-# presets.ini on demand (glm-4.7-flash at start), each as a child llama-server that exits with the
+# presets.ini on demand (none at start since glm-4.7-flash was retired, 20260929), each as a child llama-server that exits with the
 # router, and unloads the least recently used one when --models-max are loaded. It listens on the LAN
 # address only and answers only callers with the key the gateway holds (vault "compute llama api key",
 # in ~/.config/seed/llama.key, 0600). Run by supervise.sh, which adds up the whole tree against the

@@ -1,7 +1,7 @@
 # The model gateway and the rung-4 backend (R4.11). Producer: seed-metrics.sh section 8 on infra
-# (every 5 minutes, a real completion through the gateway), deployed before these rules (R1.80).
+# (every 5 minutes, a real request through the gateway: an embedding from local-embed since 20260929), deployed before these rules (R1.80).
 # A deliberate yield on compute (its supervisor stops the model under memory pressure) also
-# stops completions: on a dedicated Mac that is worth knowing, so it alerts like any outage.
+# stops the probe: on a dedicated Mac that is worth knowing, so it alerts like any outage.
 groups:
   - name: seed-inference
     rules:
@@ -13,7 +13,7 @@ groups:
       - alert: InferenceBackendStale
         expr: (time() - seed_inference_last_success_timestamp_seconds) > 20 * 60
         labels: { severity: warning }
-        annotations: { summary: "No completion from glm-4.7-flash-local (compute) through the gateway for {{ $value | humanizeDuration }}. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+        annotations: { summary: "No answer from compute (local-embed) through the gateway for {{ $value | humanizeDuration }}. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
       - alert: InferenceProbeNeverSucceeded
         expr: absent(seed_inference_last_success_timestamp_seconds)
         for: 30m

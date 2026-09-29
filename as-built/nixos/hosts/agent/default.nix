@@ -5,7 +5,7 @@
 { config, lib, pkgs, modulesPath, ... }:
 let keys = import ../../keys.nix; in
 {
-  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ];
+  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ../../modules/wifi-test.nix ];
 
   # deployed from the forge's `deploy` ref (modules/pull-deploy.nix); promotion = push main to deploy
   seed.pullDeploy = { enable = true; host = "agent"; };
@@ -43,7 +43,8 @@ let keys = import ../../keys.nix; in
   };
   # the site's few addresses from the repo: names resolve without infra (index › Rung 2, R2.09)
   networking.hosts = {
-    "192.168.1.1"  = [ "router.seed.example.com" "router" ];
+    "192.168.1.1"  = [ "fw.seed.example.com" "fw" ];            # the firewall, the gateway from the rung 6 cut-over (20260929)
+    "192.168.1.4"  = [ "router.seed.example.com" "router" ];    # the OpenWrt One, the access point from rung 6
     "192.168.1.10" = [ "infra.seed.example.com" "infra" "git.seed.example.com" ];   # the forge: deploys resolve without infra's DNS
     "192.168.1.11" = [ "agent.seed.example.com" "agent" ];
     "192.168.1.12" = [ "core.seed.example.com" "core" "ntfy.seed.example.com" ];   # ntfy: the watcher's alerts resolve without DNS
@@ -77,7 +78,7 @@ let keys = import ../../keys.nix; in
   users.users.agent = {
     isNormalUser = true; uid = 1001; group = "agent";
     # the builder (an agent) keeps unprivileged access here once its key leaves root (F-AGENT-ADMIN)
-    openssh.authorizedKeys.keys = [ keys.compute keys.agentvmBuilder keys.orchestrator ];
+    openssh.authorizedKeys.keys = [ keys.compute keys.agentvmBuilder keys.orchestrator keys.cutoverLogReader ];
   };
   # root: the orchestrator's fixture only. The builder's key was here for the install and first
   # checks (owner, 20260924) and was removed by this commit once the box deployed itself from

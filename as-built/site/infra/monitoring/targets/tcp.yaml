@@ -1,0 +1,4 @@
+# TCP-connect probes (module tcp_connect). The rung 6 firewall: its web GUI on its LAN address, 192.168.1.1 from the
+# cut-over (20260929); it was 192.168.1.2 beside the router in phase 2.
+- targets: ["192.168.1.1:443"]
+  labels: { host: fw }

@@ -22,7 +22,7 @@ tree_rss() { ps -A -o pid=,ppid=,rss= | awk -v root="$1" '{p[$1]=$2; r[$1]=$3} E
   for (x in p) { y=x; while (y != "" && y != 0 && y != 1) { if (y == root) { t += r[x]; break } y=p[y] } } print int(t/1024) }'; }
 stop() { [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null && wait "$pid" 2>/dev/null; pid=; }
 trap 'stop; log "supervisor stopped"; exit 0' TERM INT
-log "supervisor started (pid $$, ceiling ${CEILING_MIB} MiB, model $MODEL_FILE)"
+log "supervisor started (pid $$, ceiling ${CEILING_MIB} MiB, router mode, the models in presets.ini)"
 while :; do
   level=$(sysctl -n kern.memorystatus_vm_pressure_level)          # 1 normal, 2 warn, 4 critical
   free=$(memory_pressure -Q | awk -F': ' '/free percentage/ {sub("%","",$2); print $2+0}')

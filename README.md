@@ -65,8 +65,8 @@ secret.
 
 ## Status
 
-Being written as the build goes. Rungs 0 to 5 were built on the bench by 20260929 (rung 5
-keeps double NAT, by the owner's decision); rung 6 is designed. Each
+Being written as the build goes. Rungs 0 to 6 were built on the bench by 20260929 (the bench
+keeps double NAT, by the owner's decision). Each
 rung page gives its checks and figures, and [data/](data/README.md) has the measurements.
 Sections not yet written say so.
 
@@ -81,7 +81,6 @@ Built on the same bench, in roughly this order, and added here once each passes 
   reached from a phone with Moshi. Alerts by ntfy for both.
 - **Optional services, one guide each.** Home Assistant, Immich, Jellyfin and a media set,
   Paperless with Stirling, n8n, Sure with Fava, and a private Matrix server.
-- **Rung 6.** A dedicated firewall (OPNsense) at the edge, with the router as its wifi access point.
 - **An agent that looks after the site.** It reads every alert, checks that backups and
   restore tests keep passing, and fixes routine problems within permissions you write down.
 - **Runbooks from a fresh-agent build.** A fresh agent, given only this repository, rebuilds

@@ -16,7 +16,7 @@ K=$(BW_SESSION=$S bw get password 'healthchecks api key' 2>/dev/null); BW_SESSIO
 H() { curl -sf -m 20 -H @<(printf 'X-Api-Key: %s\n' "$K") "$@"; }
 uuid=$(H "$API/" | jq -r --arg s $SLUG '.checks[] | select(.slug==$s) | .uuid')
 [[ $uuid =~ ^[0-9a-f-]{36}$ ]] || { echo "check $SLUG not found"; exit 1; }
-show() { H "$API/$uuid" | jq -r '"\(now | todate) \(.slug): status=\(.status) manual_resume=\(.manual_resume) last_ping=\(.last_ping)"'; }
+show() { H "$API/$uuid" | jq -r '"\(now | todate) \(.slug): status=\(.status) manual_resume=\(.manual_resume) last_ping=\(.last_ping) timeout=\(.timeout)s grace=\(.grace)s"'; }
 case "${1:-status}" in
 status) show ;;
 pause)

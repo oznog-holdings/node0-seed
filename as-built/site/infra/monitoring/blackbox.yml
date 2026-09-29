@@ -14,6 +14,12 @@ modules:
       valid_status_codes: []        # 2xx
       fail_if_not_ssl: true
       preferred_ip_protocol: ip4
+  # a TCP connect (rung 6: the firewall's web port; no raw sockets needed, unlike ICMP)
+  tcp_connect:
+    prober: tcp
+    timeout: 5s
+    tcp:
+      preferred_ip_protocol: ip4
   dns_site:
     prober: dns
     timeout: 5s

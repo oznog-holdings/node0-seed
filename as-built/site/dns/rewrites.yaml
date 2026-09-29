@@ -3,14 +3,14 @@
 # and a deploy. Only this subdomain is answered locally; everything else goes upstream.
 zone: seed.example.com
 hosts:            # name -> address (hosts.md is the inventory)
-  router: 192.168.1.1
+  router: 192.168.1.4   # the OpenWrt One: the access point from rung 6 (20260929 cut-over); was the gateway at .1
   infra: 192.168.1.10
   agent: 192.168.1.11
   core: 192.168.1.12
   agentvm: 192.168.1.13
   compute: 192.168.1.20
   ns1: 192.168.1.15   # Technitium on core, the primary (rung 5): core's second address
-  fw: 192.168.1.2     # the firewall's management address beside the router (rung 6, phases 1-2)
+  fw: 192.168.1.1     # the firewall: the LAN gateway from the rung 6 cut-over (20260929); .2 beside the router before
   ns2: 192.168.1.16   # Technitium on infra, the secondary (rung 5): its container's own address (br0)
 services:         # name -> the host that serves it (through its Caddy on infra; ntfy on core directly)
   vault: infra    # Vaultwarden (deviation D.01)
