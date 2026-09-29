@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>vaultwarden</Name>
+  <Repository>vaultwarden/server:1.37.3@sha256:1587c45feaa479f1f5e8af3b00eded36bff77bcf1880cf8dbf0541706dd470e0</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: the site's password manager (deviation D.01), behind Caddy at vault.seed.example.com. Published on 127.0.0.1 only.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 127.0.0.1:8081:80 --env-file=/mnt/data/system/secrets/vaultwarden.env --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/data" Default="" Mode="rw" Description="db.sqlite3, attachments, keys" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/vaultwarden/data</Config>
+  <Config Name="DOMAIN" Target="DOMAIN" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">https://vault.seed.example.com</Config>
+  <Config Name="SIGNUPS_ALLOWED" Target="SIGNUPS_ALLOWED" Default="false" Mode="" Description="accounts by invitation only" Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+  <Config Name="INVITATIONS_ALLOWED" Target="INVITATIONS_ALLOWED" Default="true" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="ORG_CREATION_USERS" Target="ORG_CREATION_USERS" Default="" Mode="" Description="only the builder creates organizations" Type="Variable" Display="always" Required="true" Mask="false">builder@seed.example.com</Config>
+  <Config Name="PASSWORD_HINTS_ALLOWED" Target="PASSWORD_HINTS_ALLOWED" Default="false" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+  <Config Name="IP_HEADER" Target="IP_HEADER" Default="X-Real-IP" Mode="" Description="set by Caddy" Type="Variable" Display="always" Required="true" Mask="false">X-Real-IP</Config>
+</Container>

@@ -1,0 +1,9 @@
+# The site's calendar, part 1 (design › Backups: "run a quarterly application restore from the
+# offsite store ... count the rows against production"; R1.60). A reminder to a person, from
+# core so it doesn't depend on infra. The weekly rehearsal on core already restores the
+# Vaultwarden dump; this is the fuller, by-hand one (Forgejo and Postgres row counts).
+[Unit]
+Description=Reminder: the quarterly application restore is due
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-notify "Quarterly: application restore" 3 "Due: restore the Forgejo and Postgres dumps from B2 (not the local copy) into scratch containers and count rows against production (design, Backups; R1.60). Also refresh BOTH recovery pack copies, A and B (runbooks/recovery-order.md). Record it in the diary."

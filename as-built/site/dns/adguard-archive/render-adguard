@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Render AdGuardHome.yaml from dns/rewrites.yaml over the pinned version's own defaults.
+
+design › DNS: the records live in the repo as one list; the container's yaml is generated
+from it (no second copy). Settings are the repo's: deploy mounts the result read-only, so a
+UI change cannot persist (the container equivalent of NixOS `mutableSettings = false`).
+The admin password hash comes from the environment (ADGUARD_ADMIN_HASH), never the repo.
+Usage: render-adguard [--host infra|core] [--hash-placeholder] > AdGuardHome.yaml
+The same list rendered for both servers (index › Rung 3: core the primary, infra's container
+the second); only the listening address and, on core's SD card, the query log file differ.
+"""
+import os, sys, yaml
+# ARCHIVED 20260929 (rung 5 › F): AdGuard retired; kept here with its defaults for the way back
+# (site/dns/adguard-archive/README.md). Paths from this archive: site/dns/adguard-archive -> site.
+here = os.path.dirname(os.path.abspath(__file__))
+site = os.path.dirname(os.path.dirname(here))
+base = yaml.safe_load(open(os.path.join(here, 'infra/defaults-v0.107.79.yaml')))
+names = yaml.safe_load(open(os.path.join(site, 'dns/rewrites.yaml')))
+zone, hosts, services = names['zone'], names['hosts'], names.get('services') or {}
+server = sys.argv[sys.argv.index('--host') + 1] if '--host' in sys.argv else 'infra'
+if server not in ('infra', 'core'): sys.exit(f'--host {server}: infra or core')
+
+h = os.environ.get('ADGUARD_ADMIN_HASH')
+if '--hash-placeholder' in sys.argv: h = f'<bcrypt hash from the vault item "adguard {server} admin">'
+if not h: sys.exit('ADGUARD_ADMIN_HASH not set (or pass --hash-placeholder for a diffable render)')
+
+rewrites = [{'domain': f'{n}.{zone}', 'answer': ip, 'enabled': True} for n, ip in hosts.items()]
+for n, host in services.items():
+    if host not in hosts: sys.exit(f'service {n}: unknown host {host}')
+    rewrites.append({'domain': f'{n}.{zone}', 'answer': hosts[host], 'enabled': True})
+if len({r['domain'] for r in rewrites}) != len(rewrites): sys.exit('duplicate name in rewrites.yaml')
+
+c = base
+c['http']['address'] = '127.0.0.1:3000'          # UI only via Caddy (dns.<zone>)
+c['users'] = [{'name': 'admin', 'password': h}]
+d = c['dns']
+if server == 'infra':
+    d['bind_hosts'] = [hosts['infra'], '127.0.0.1']   # not 0.0.0.0: libvirt's dnsmasq holds 192.168.122.1:53
+else:
+    d['bind_hosts'] = [hosts['core'], '127.0.0.1']     # core: not 0.0.0.0 from rung 5: Technitium (ns1) holds core's second address's :53
+d['port'] = 53
+d['upstream_dns'] = ['https://dns.quad9.net/dns-query', 'https://cloudflare-dns.com/dns-query']
+d['bootstrap_dns'] = ['9.9.9.9', '1.1.1.1']
+d['local_ptr_upstreams'] = [hosts['router']]      # PTR for the LAN from the router's DHCP names
+c['querylog']['interval'] = '168h'                # a week of who-asked-what, not 90 days
+if server == 'core':
+    c['querylog']['file_enabled'] = False          # core runs from an SD card: the query log stays in memory
+f = c['filtering']
+f['rewrites'] = rewrites
+f['safe_search']['enabled'] = False               # the pages don't ask for rewritten search engines
+# Ad filtering stays on for every client, the default the pages name. Exempting the servers
+# as persistent clients with filtering off was tried and removed: in AdGuard, rewrites are
+# part of filtering, so those clients got NXDOMAIN for the site's own names (finding F-DNS).
+yaml.safe_dump(c, sys.stdout, sort_keys=False, default_flow_style=False)

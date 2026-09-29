@@ -1,0 +1,20 @@
+{"id":"t01","q":"What is 17 * 23?","a":"391"}
+{"id":"t02","q":"What is 1234 + 5678?","a":"6912"}
+{"id":"t03","q":"What is 2 to the power 10, minus 24?","a":"1000"}
+{"id":"t04","q":"What is 15% of 240?","a":"36"}
+{"id":"t05","q":"How many days does February 2028 have?","a":"29"}
+{"id":"t06","q":"Reverse the string \"seedlab\".","a":"balbdees"}
+{"id":"t07","q":"How many times does the letter r appear in \"strawberry raspberry\"?","a":"6"}
+{"id":"t08","q":"Sort 42, 7, 19, 3 in ascending order, comma-separated.","a":"3,7,19,42"}
+{"id":"t09","q":"Text: \"The invoice INV-2291 was paid on 2026-03-14 by Acme Ltd for 1,250.00 EUR.\" What is the invoice number?","a":"INV-2291"}
+{"id":"t10","q":"Text: \"The invoice INV-2291 was paid on 2026-03-14 by Acme Ltd for 1,250.00 EUR.\" In which currency was it paid (the three-letter code)?","a":"EUR"}
+{"id":"t11","q":"What does this Python print? print(len([x for x in range(20) if x % 3 == 0]))","a":"7"}
+{"id":"t12","q":"What does this Python print? print(\"-\".join(sorted(\"cab\")))","a":"a-b-c"}
+{"id":"t13","q":"What does this Python print? print(sum(range(1, 11)))","a":"55"}
+{"id":"t14","q":"What is the smallest prime number greater than 89?","a":"97"}
+{"id":"t15","q":"Convert binary 101101 to decimal.","a":"45"}
+{"id":"t16","q":"Convert hexadecimal FF to decimal.","a":"255"}
+{"id":"t17","q":"A train leaves at 14:40 and the trip takes 2 hours 35 minutes. When does it arrive (HH:MM)?","a":"17:15"}
+{"id":"t18","q":"How many words are in: \"the quick brown fox jumps over the lazy dog\"?","a":"9"}
+{"id":"t19","q":"What is the greatest common divisor of 84 and 126?","a":"42"}
+{"id":"t20","q":"What is the capital city of Australia?","a":"Canberra"}

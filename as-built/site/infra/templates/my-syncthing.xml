@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>syncthing</Name>
+  <Repository>syncthing/syncthing:2.1.5@sha256:397aa00b92b48d65540ea3ae3cbf271b87bdccbe07a0b7bd7d2debc3a7b29138</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: Syncthing on infra with staggered versioning (design: Services, rung 1; R1.41). GUI on 127.0.0.1:8384 only, behind Caddy at https://infra.seed.example.com/sync/ with its own login (vault "syncthing infra gui"). Sync on tcp/udp 22000 on the LAN; global discovery, relays and NAT traversal off. Folder "documents" = the documents share, staggered versions. Runs as nobody:users (99:100).</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--hostname=infra-sync -p 127.0.0.1:8384:8384 -p 22000:22000/tcp -p 22000:22000/udp --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="config" Target="/var/syncthing" Default="" Mode="rw" Description="config and database (appdata)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/syncthing</Config>
+  <Config Name="documents" Target="/data/documents" Default="" Mode="rw" Description="the documents share" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/documents</Config>
+  <Config Name="PUID" Target="PUID" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">100</Config>
+  <Config Name="STGUIADDRESS" Target="STGUIADDRESS" Default="" Mode="" Description="GUI inside the container; published on 127.0.0.1 only" Type="Variable" Display="always" Required="true" Mask="false">0.0.0.0:8384</Config>
+</Container>

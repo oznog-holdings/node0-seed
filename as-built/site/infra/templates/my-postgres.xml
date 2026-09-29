@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>postgres</Name>
+  <Repository>postgres:17.11-alpine3.24@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: the shared Postgres (gateway, NetBox). Published on docker0 (172.17.0.1) only; containers reach it as db.internal via host-gateway. One role and database per app.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 172.17.0.1:5432:5432 --env-file=/mnt/data/system/secrets/postgres.env --shm-size=128m --restart=unless-stopped</ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/var/lib/postgresql/data" Default="" Mode="rw" Description="cluster data (live; never backed up directly: pg_dump per database)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/postgres/data</Config>
+  <Config Name="initdb" Target="/docker-entrypoint-initdb.d" Default="" Mode="ro" Description="first-init roles and databases, from the site repo" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/postgres/initdb</Config>
+</Container>

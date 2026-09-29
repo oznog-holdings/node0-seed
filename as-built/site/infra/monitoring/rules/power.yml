@@ -1,0 +1,28 @@
+# infra's own UPS alerts (R1.88's UPS state; 20260928), in their own group evaluated every 10 s, so that
+# UpsOnBattery can fire inside a fast shutdown. Worst case from the UPS changing state to Alertmanager
+# sending: producer 10 s (seed-ups-metrics.sh) + scrape 10 s + evaluation 10 s + for 10 s, with
+# group_wait 0 s for this alert (alertmanager.yml), about 40 s. The UPS test of 20260927 shut infra down
+# 97 s after the cut.
+# On this bench the switch and the router are on a wall outlet (D.07): during a real power cut nothing
+# leaves infra, and core's seed-power-watch ("UPS state unreadable" after 3 minutes) is the power alert
+# the phone gets. These rules carry UPS events that keep the LAN up (a self-test, a brownout, a battery
+# fault), and every power event once the switch is on the UPS.
+groups:
+  - name: seed-power
+    interval: 10s
+    rules:
+      - alert: UpsOnBattery
+        expr: seed_ups_on_battery == 1
+        for: 10s
+        labels: { severity: critical }
+        annotations: { summary: "UPS on battery: {{ with query \"seed_ups_battery_charge_percent\" }}{{ . | first | value }}{{ end }}% charge, {{ with query \"seed_ups_timeleft_minutes\" }}{{ . | first | value }}{{ end }} min left. infra shuts itself down at 25% or 10 min left." }
+      - alert: UpsUnreachable
+        expr: seed_ups_up == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "apcupsd does not answer on infra: a power event would go unnoticed." }
+      - alert: UpsMetricsStale
+        expr: time() - seed_ups_metrics_last_run_timestamp_seconds > 180
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "The UPS producer (seed-ups-metrics.sh) has not written for {{ $value | humanizeDuration }}: the power alert is blind." }

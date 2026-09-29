@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Deploy the monitoring config (site/infra/monitoring) to infra: stage, validate with each
+# program's own parser (promtool, amtool, blackbox --config.check, promtool test rules), and
+# only then put it in place and reload the running services. A file that fails validation
+# never reaches the live config (lesson of F-CHRONY-COMMENT).
+set -euo pipefail
+cd "$(dirname "$0")/../infra/monitoring"
+INFRA=root@192.168.1.10; M=/mnt/data/appdata/monitoring; STAGE=$M/.stage
+PROM=prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+AM=prom/alertmanager:v0.34.1@sha256:e9733bafb1bdef9b00e25a21f8f99dc26a22224bf16641ad754d1649f4c3357a
+BB=prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
+ssh $INFRA "rm -rf $STAGE && mkdir -p $STAGE"
+tar cf - prometheus.yml blackbox.yml targets rules $( [ -f alertmanager.yml ] && echo alertmanager.yml ) | ssh $INFRA "tar xf - --no-same-owner -C $STAGE"
+ssh $INFRA "set -e
+  docker run --rm --entrypoint promtool -v $STAGE:/etc/prometheus:ro $PROM check config /etc/prometheus/prometheus.yml
+  if ls $STAGE/rules/*.test.yaml >/dev/null 2>&1; then docker run --rm --entrypoint sh -w /etc/prometheus/rules -v $STAGE:/etc/prometheus:ro $PROM -c 'promtool test rules *.test.yaml'; fi
+  docker run --rm --entrypoint /bin/blackbox_exporter -v $STAGE/blackbox.yml:/b.yml:ro $BB --config.file=/b.yml --config.check
+  if [ -f $STAGE/alertmanager.yml ]; then docker run --rm --entrypoint amtool -v $STAGE/alertmanager.yml:/a.yml:ro -v /mnt/data/system/secrets/monitoring:/secrets:ro $AM check-config /a.yml; fi"
+# validated: put in place (the containers mount $M/current read-only) and reload
+# update the files INSIDE current/ (the containers bind-mount that directory; replacing it by rename
+# would leave them on the deleted old one), keeping a copy of the previous set
+ssh $INFRA "set -e; mkdir -p $M/current; rm -rf $M/previous; cp -a $M/current $M/previous
+  rsync -a --delete --chmod=a+rX $STAGE/ $M/current/; rm -rf $STAGE
+  for u in 127.0.0.1:9090 127.0.0.1:9093 127.0.0.1:9115; do curl -s -o /dev/null -w \"reload \$u: %{http_code}\n\" -X POST http://\$u/-/reload || true; done"

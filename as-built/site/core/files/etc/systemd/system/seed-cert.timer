@@ -1,0 +1,10 @@
+[Unit]
+Description=Check ntfy's certificate daily (acme.sh renews 30 days before expiry)
+
+[Timer]
+OnCalendar=*-*-* 04:17:00
+RandomizedDelaySec=30m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

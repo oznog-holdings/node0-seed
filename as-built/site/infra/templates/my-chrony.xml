@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>chrony</Name>
+  <Repository>seed/chrony:4.8-alpine3.24</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: NTP for the LAN and infra clock (design: Time). Config from the site repo.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--cap-add=SYS_TIME --restart=unless-stopped</ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="chrony.conf" Target="/etc/chrony/chrony.conf" Default="" Mode="ro" Description="rendered from the site repo" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/chrony/chrony.conf</Config>
+  <Config Name="state" Target="/var/lib/chrony" Default="" Mode="rw" Description="drift file" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/chrony/state</Config>
+</Container>

@@ -1,0 +1,10 @@
+# node_exporter targets. One line per box; add the agent box and core as they arrive.
+- targets: ["127.0.0.1:9100"]
+  labels: { host: infra }
+- targets: ["192.168.1.11:9100"]
+  labels: { host: agent }
+- targets: ["192.168.1.12:9100"]
+  labels: { host: core }
+# site2, the second site (rung 5 › E), over the tailnet: its freshness metric (seed_replica_*)
+- targets: ["100.64.0.12:9100"]
+  labels: { host: site2 }

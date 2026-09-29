@@ -1,0 +1,101 @@
+# Unit tests for core.yml (promtool test rules).
+rule_files: [core.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'seed_chrony_synced{host="core"}'
+        values: '1x10 0x50'
+      - series: 'seed_chrony_sources_reachable{host="core"}'
+        values: '5x60'
+      - series: 'seed_rootfs_errors_total{host="core"}'
+        values: '0x30 1x30'
+      - series: 'seed_service_active{host="core",unit="ntfy"}'
+        values: '1x10 0x50'
+      - series: 'seed_service_active{host="core",unit="chrony"}'
+        values: '1x60'
+      - series: 'seed_core_metrics_last_run_timestamp_seconds{host="core"}'
+        values: '0+60x10 600x50'
+      - series: 'seed_power_watch_last_run_timestamp_seconds{host="core"}'
+        values: '0+60x60'
+      - series: 'seed_power_ups_readable{host="core"}'
+        values: '1x20 0x40'
+      - series: 'seed_cert_expiry_timestamp_seconds{host="core",name="ntfy"}'
+        values: '864000x60'
+      - series: 'seed_restore_rehearsal_ok{host="core",repo="b2-infra",check="files"}'
+        values: '1x60'
+      - series: 'seed_restore_rehearsal_ok{host="core",repo="b2-infra",check="app"}'
+        values: '0x60'
+      - series: 'seed_restore_rehearsal_skipped{host="core",repo="b2-infra"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: CoreTimeUnsynced
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: CoreTimeUnsynced
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core }
+            exp_annotations: { summary: "core's chrony (the site's NTP primary) is not synchronised or reaches no source." }
+      - eval_time: 20m
+        alertname: CoreFilesystemErrors
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: CoreFilesystemErrors
+        exp_alerts:
+          - exp_labels: { severity: critical, host: core }
+            exp_annotations: { summary: "core's root filesystem (the SD card) recorded new ext4 errors (or they can't be read): plan a new card." }
+      - eval_time: 25m
+        alertname: CoreServiceDown
+        exp_alerts:
+          - exp_labels: { severity: critical, host: core, unit: ntfy }
+            exp_annotations: { summary: "core: ntfy is not running." }
+      - eval_time: 15m
+        alertname: CoreMetricsStale
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: CoreMetricsStale
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core }
+            exp_annotations: { summary: "core's own metrics or its power watch have stopped running." }
+      - eval_time: 35m
+        alertname: CoreCannotReadUps
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core }
+            exp_annotations: { summary: "core cannot read the UPS from infra's apcupsd (:3551): it would not see a power event." }
+      - eval_time: 10m
+        alertname: CoreCertExpiring
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core, name: ntfy }
+            exp_annotations: { summary: "The ntfy certificate on core expires in 9d 23h 50m 0s (renewal is due 30 days before)." }
+      - eval_time: 5m
+        alertname: RehearsalFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, host: core, repo: b2-infra, check: app }
+            exp_annotations: { summary: "Restore rehearsal from core: the app check of b2-infra failed." }
+      - eval_time: 5m
+        alertname: RehearsalSkipped
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: RehearsalMissing
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: RehearsalMissing
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core }
+            exp_annotations: { summary: "core publishes no restore rehearsal result at all." }
+  - interval: 1h
+    input_series:
+      - series: 'seed_restore_rehearsal_last_success_timestamp_seconds{host="core"}'
+        values: '0x240'
+      - series: 'seed_restore_rehearsal_last_attempt_timestamp_seconds{host="core"}'
+        values: '0x240'
+    alert_rule_test:
+      - eval_time: 7d
+        alertname: RehearsalStale
+        exp_alerts: []
+      - eval_time: 9d
+        alertname: RehearsalStale
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core }
+            exp_annotations: { summary: "No successful restore rehearsal from core for 9d 0h 0m 0s (it runs weekly)." }

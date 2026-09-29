@@ -1,0 +1,46 @@
+#!/bin/bash
+# Pull-deploy for core (Debian, not NixOS: deviation "core is a Raspberry Pi 4 on Debian",
+# finding F-DEBIAN). The same rules as the agent box's module (nixos/modules/pull-deploy.nix):
+#  - track the forge's `deploy` ref, not `main`;
+#  - FAIL CLOSED: a failed fetch exits non-zero and applies nothing (never the cached tree);
+#  - every attempt leaves a metric (last attempt, result and stage, last success, revision).
+# Then `site/core/apply` from the fetched tree does the work; it is idempotent.
+# The deploy key is read-only on the forge (root, 0600, made on core, never in the repo); the
+# forge's host key is pinned from the repo (nixos/forge-hostkey.pub) at bootstrap.
+set -uo pipefail
+dir=/var/lib/seed-deploy; repo=$dir/repo; textfile=/var/lib/prometheus/node-exporter
+url=${SEED_DEPLOY_URL:-ssh://git@git.seed.example.com:2222/seed/seed-lab.git}; ref=deploy
+export GIT_SSH_COMMAND="ssh -i $dir/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$dir/known_hosts -o ConnectTimeout=20"
+now=$(date +%s)
+metric() {  # result (1 success, 0 failure), stage
+  mkdir -p $textfile
+  { echo "# HELP seed_deploy_last_attempt_timestamp_seconds Last pull-deploy attempt."
+    echo "# TYPE seed_deploy_last_attempt_timestamp_seconds gauge"
+    echo "seed_deploy_last_attempt_timestamp_seconds $now"
+    echo "# HELP seed_deploy_last_result 1 if the last pull-deploy succeeded."
+    echo "# TYPE seed_deploy_last_result gauge"
+    echo "seed_deploy_last_result{stage=\"$2\"} $1"
+    if [ -s $dir/last-success ]; then
+      echo "# HELP seed_deploy_last_success_timestamp_seconds Last successful pull-deploy."
+      echo "# TYPE seed_deploy_last_success_timestamp_seconds gauge"
+      echo "seed_deploy_last_success_timestamp_seconds $(cut -d' ' -f1 $dir/last-success)"
+      echo "seed_deploy_info{rev=\"$(cut -d' ' -f2 $dir/last-success | cut -c1-12)\"} 1"
+    fi; } > $textfile/seed-deploy.prom.tmp && mv $textfile/seed-deploy.prom.tmp $textfile/seed-deploy.prom
+}
+fail() {
+  case $1 in apply) echo "seed-deploy: FAILED at apply (the tree was fetched; apply reported a fault, see above)" >&2 ;;
+             *)     echo "seed-deploy: FAILED at $1 (fail closed: nothing applied)" >&2 ;; esac
+  metric 0 "$1"; exit 1; }
+if [ ! -d $repo/.git ]; then
+  git clone --no-checkout --branch "$ref" --single-branch "$url" $repo || fail clone
+fi
+git -C $repo remote set-url origin "$url"
+# the fetch must succeed; a cached tree is never applied
+git -C $repo fetch --prune origin "+refs/heads/$ref:refs/remotes/origin/$ref" || fail fetch
+git -C $repo checkout --force --detach "origin/$ref" || fail checkout
+rev=$(git -C $repo rev-parse HEAD)
+echo "seed-deploy: applying $ref at $rev"
+bash $repo/site/core/apply "$repo" || fail apply
+echo "$(date +%s) $rev" > $dir/last-success
+metric 1 done
+echo "seed-deploy: done, $rev"

@@ -1,0 +1,15 @@
+# The restore rehearsal from core (index › Rung 3: "backups are read from somewhere other
+# than the box that wrote them"; design › Backups: weekly restore test, compared by hash,
+# skipped raised as its own alarm).
+[Unit]
+Description=Restore rehearsal: read the B2 bucket from core, restore and verify
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-restore-rehearsal
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=idle
+PrivateTmp=no

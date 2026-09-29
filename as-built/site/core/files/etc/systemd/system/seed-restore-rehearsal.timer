@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly restore rehearsal from core (Sunday 05:30, after the nightly cycle)
+
+[Timer]
+OnCalendar=Sun *-*-* 05:30:00
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

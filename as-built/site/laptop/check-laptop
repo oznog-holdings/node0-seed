@@ -1,0 +1,94 @@
+#!/bin/bash
+# Readiness of compute as the site's laptop, run on it as seed: one line per check, exit 1 if any
+# FAILs. With --infra-off, infra and agentvm are expected down (the infra-off gate,
+# site/runbooks/laptop-infra-off-gate.md) and everything else must still pass.
+# Plain bash 3.2 (macOS's own), no Homebrew needed except restic, which it checks.
+set -u
+INFRA_OFF=0; [ "${1:-}" = --infra-off ] && INFRA_OFF=1
+export PATH=$HOME/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
+REPO=$HOME/seed-lab; SHARE=$HOME/.local/share/seed/laptop; STATE=$HOME/.local/state/seed
+ZONE=seed.example.com; SVC="USB 10/100/1G/2.5G LAN"; KEY=$HOME/.ssh/id_ed25519
+fails=0
+ok()   { printf 'ok    %s\n' "$*"; }
+bad()  { printf 'FAIL  %s\n' "$*"; fails=$((fails+1)); }
+info() { printf 'info  %s\n' "$*"; }
+t() { local what=$1; shift; if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi; }
+
+# the box
+t "hostname is compute" test "$(scutil --get LocalHostName)" = compute
+t "192.168.1.20 on the wired port (en9)" sh -c 'ipconfig getifaddr en9 | grep -qx 192.168.1.20'
+t "FileVault on" sh -c 'fdesetup status | grep -q "FileVault is On"'
+t "wifi off (the site's address is the wired one)" sh -c 'networksetup -getairportpower en0 | grep -q ": Off"'
+t "the site's range goes out the wired port, not a VPN (R1.21)" sh -c 'route -n get 192.168.1.12 | grep -q "interface: en9"'
+if tailscale status >/dev/null 2>&1; then info "tailscale running"; else info "tailscale not running (on the LAN it isn't needed)"; fi
+
+# names: the block equals the repo's render; every name resolves through the system resolver
+if [ -s "$SHARE/hosts.block" ]; then
+  inst=$(awk -v b="# BEGIN $ZONE" -v e="# END $ZONE" 'index($0,b)==1{p=1} p{print} index($0,e)==1{p=0}' /etc/hosts)
+  if [ "$inst" = "$(cat "$SHARE/hosts.block")" ]; then ok "/etc/hosts carries the site's block, equal to the installed render"; else bad "/etc/hosts block differs from $SHARE/hosts.block (or is missing)"; fi
+  if [ -x "$REPO/site/bin/render-laptop-hosts" ] && python3 -c 'import yaml' 2>/dev/null; then
+    if [ "$("$REPO/site/bin/render-laptop-hosts")" = "$(cat "$SHARE/hosts.block")" ]; then ok "installed render equals the repo's render"; else bad "installed render differs from the repo (re-install)"; fi
+  else info "installed render not compared with the repo here (no python3 yaml); the builder compares hashes"
+  fi
+  grep -v '^#' "$SHARE/hosts.block" | while read -r addr names; do
+    for n in $names; do
+      got=$(dscacheutil -q host -a name "$n" | awk '/^ip_address:/{print $2; exit}')
+      [ "$got" = "$addr" ] || echo "$n: $got, want $addr"
+    done
+  done > "$STATE/check-names.$$"
+  if [ -s "$STATE/check-names.$$" ]; then bad "names: $(tr '\n' ';' < "$STATE/check-names.$$")"; else ok "every site name resolves to its address"; fi
+  rm -f "$STATE/check-names.$$"
+else bad "no $SHARE/hosts.block"; fi
+dns=$(networksetup -getdnsservers "$SVC" | tr '\n' ' ')
+case "$dns" in "192.168.1.15 192.168.1.16 9.9.9.9"*) ok "resolvers: $dns(ns1, ns2, external fallbacks)";; *) bad "resolvers: $dns(want Technitium ns1 192.168.1.15, ns2 192.168.1.16, then external: admin-setup.sh, rung 5 › F)";; esac
+t "an internet name resolves (github.com)" sh -c 'dscacheutil -q host -a name github.com | grep -q ip_address'
+
+# ssh to every seed box, host keys pinned (StrictHostKeyChecking=yes)
+S="ssh -n -i $KEY -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=6"
+for tgt in root@router admin@core admin@agent root@infra; do
+  h=${tgt#*@}
+  if [ $INFRA_OFF = 1 ] && [ "$h" = infra ]; then
+    if $S "$tgt.$ZONE" true 2>/dev/null; then bad "ssh $tgt: infra answers but should be off"; else ok "ssh $tgt: unreachable, as expected (infra off)"; fi
+    continue
+  fi
+  t "ssh $tgt.$ZONE" $S "$tgt.$ZONE" true
+done
+info "agentvm: not a laptop target (retiring; runbook move step 9)"
+
+# the decryption identity: the laptop's key opens the site's secrets files
+if [ -d "$REPO/.git" ]; then
+  n=$(age -d -i "$KEY" "$REPO/site/core/secrets.age" 2>/dev/null | grep -c '=') || n=0
+  if [ "$n" -gt 0 ]; then ok "core's secrets.age opens with the laptop key ($n values, not shown)"; else bad "core's secrets.age does not open with the laptop key"; fi
+  n=$(SOPS_AGE_SSH_PRIVATE_KEY_FILE=$KEY sops -d --output-type json "$REPO/nixos/secrets/agent.yaml" 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))' 2>/dev/null) || n=0
+  if [ "${n:-0}" -gt 0 ]; then ok "the agent box's secrets open with the laptop key ($n keys, not shown)"; else bad "the agent box's secrets do not open with the laptop key"; fi
+  info "repo at $(git -C "$REPO" log -1 --format='%h %cd' --date=iso)"
+else bad "no clone of the config repo at $REPO"; fi
+
+# flow 2: the job is scheduled, the last run was good and recent (every two hours, plus slack)
+if launchctl print system/co.oznog.seed.backup >/dev/null 2>&1; then ok "backup job: system daemon (runs as seed)"
+elif launchctl print user/$(id -u)/co.oznog.seed.backup >/dev/null 2>&1; then bad "backup job: interim user-domain job only (gone after a reboot; admin-setup.sh not run)"
+else bad "backup job not loaded"; fi
+t "restic is 0.19.1 (Homebrew)" sh -c 'restic version | grep -q "restic 0.19.1 "'
+# the three folders the job can't read (TCC) must stay empty, or their files are unprotected
+full=""; for d in Desktop Documents Downloads; do [ -z "$(ls -A "$HOME/$d" 2>/dev/null | grep -v '^.localized$')" ] || full="$full $d"; done
+if [ -z "$full" ]; then ok "Desktop, Documents, Downloads empty (the backup can't read them: TCC)"; else bad "files in$full: not backed up (TCC); move them under ~ elsewhere"; fi
+last=$(cat "$STATE/backup.last" 2>/dev/null || echo 0); rc=$(cat "$STATE/backup.rc" 2>/dev/null || echo none)
+age_min=$(( ($(date +%s) - last) / 60 ))
+if [ "$rc" = 0 ] && [ $age_min -le 150 ]; then ok "last backup good, $age_min min ago"; else bad "last backup: rc=$rc, $age_min min ago (want 0 and at most 150)"; fi
+# the laptop carries no other scheduled job of seed's (P2, X.02)
+other=$(launchctl print user/$(id -u) 2>/dev/null | awk '/services = {/{p=1;next} p&&/}/{p=0} p' | grep -i 'seed' | grep -v co.oznog.seed.backup || true)
+cron=$(crontab -l 2>/dev/null | grep -v '^#' | grep -c . || true)
+if [ -z "$other" ] && [ "${cron:-0}" = 0 ] && [ ! -d "$HOME/Library/LaunchAgents" -o -z "$(ls -A "$HOME/Library/LaunchAgents" 2>/dev/null | grep -v co.oznog.seed.backup)" ]; then ok "no other scheduled job for seed"; else bad "other scheduled jobs for seed: $other cron=$cron"; fi
+
+# the Mac never sleeps (rung 4 serves the gateway): SleepDisabled reverted to 0 once, when the
+# owner's session was logged out (20260927); the orchestrator set it back with `sudo pmset -a disablesleep 1`
+sd=$(pmset -g | awk '/SleepDisabled/ {print $2}'); sl=$(pmset -g | awk '$1=="sleep" {print $2}')
+if [ "$sd" = 1 ]; then ok "SleepDisabled 1"; else bad "SleepDisabled is ${sd:-unset}, not 1 (an admin: sudo pmset -a disablesleep 1)"; fi
+if [ "$sl" = 0 ]; then ok "system sleep 0 (never)"; else bad "system sleep is ${sl:-unset} minutes, not 0"; fi
+
+# time: within a second of core (NTP primary)
+off=$(sntp -t 3 192.168.1.12 2>/dev/null | awk '/[+-][0-9.]+ \+\/-/{print $1; exit}')
+case "$off" in "") bad "time: core's NTP did not answer";; *) a=${off#[+-]}; if [ "${a%%.*}" -lt 1 ]; then ok "time within ${off}s of core"; else bad "time off by ${off}s from core"; fi;; esac
+
+echo "$([ $fails = 0 ] && echo READY || echo "NOT READY: $fails failed")"
+exit $([ $fails = 0 ] && echo 0 || echo 1)

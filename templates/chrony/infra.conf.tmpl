@@ -1,0 +1,19 @@
+# chrony on infra: the site's second time server from rung 3 (the only one at rung 1).
+# Runs with the capability to set the clock, so it also keeps infra's own time; Unraid's own
+# NTP must be off (Settings, Date and Time).
+#
+# A hierarchy, not a pair: infra takes its time from the public pool only, never from core.
+# When two servers each list the other, they time each other in a loop through an internet
+# outage and never fall back to their own clocks.
+pool 2.pool.ntp.org iburst maxsources 4
+driftfile /var/lib/chrony/chrony.drift
+makestep 1 3
+rtcsync
+# Serve the LAN, and keep serving through an internet outage: with the pool out of reach
+# infra falls back to its own clock (it has a real-time clock), and core follows infra.
+allow ${lan.prefix}
+local stratum 10 orphan
+# chronyc only from infra itself
+bindcmdaddress 127.0.0.1
+cmdallow 127.0.0.1
+# Keep comments on their own lines: chrony refuses a comment after a directive.

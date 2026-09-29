@@ -1,0 +1,25 @@
+# Your site's values. Copy to values.yaml and change them; the templates read this file.
+# The defaults are documentation values: nothing here is a real address or name.
+site:
+  domain: site.example.com          # the subdomain your site's names live in
+  timezone: America/Denver
+lan:
+  prefix: 192.168.50.0/24
+  router: 192.168.50.1
+  dhcp_pool_start: 192.168.50.100      # servers get static addresses below the pool
+  dhcp_pool_end: 192.168.50.249
+hosts:                                 # static, outside the DHCP pool, set where each is installed
+  infra: 192.168.50.10
+  agent: 192.168.50.11
+  core: 192.168.50.12
+  agentvm: 192.168.50.13
+  compute: 192.168.50.20
+services:                              # name -> the host that serves it
+  vault: infra
+  git: infra
+  gw: infra
+  netbox: infra
+  ntfy: core
+backup:
+  bucket_site: site-example-data      # site data, restic, 30-day hidden-version rule
+  bucket_machines: site-example-machines   # the rest-server mirror, same rule

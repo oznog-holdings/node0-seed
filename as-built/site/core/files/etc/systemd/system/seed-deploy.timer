@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull-deploy core every 15 minutes
+
+[Timer]
+OnCalendar=*:0/15
+OnBootSec=5min
+RandomizedDelaySec=2m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

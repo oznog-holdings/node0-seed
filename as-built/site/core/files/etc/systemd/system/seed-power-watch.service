@@ -1,0 +1,9 @@
+# core watches infra's UPS (Unraid's apcupsd network server, :3551) and reports; it never
+# shuts itself down on a power event (site/runbooks/power-protocol.md).
+[Unit]
+Description=Read the UPS state from infra and report changes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-power-watch
+TimeoutStartSec=50s

@@ -1,0 +1,12 @@
+# HTTPS endpoints that must answer 2xx with a valid certificate. One line per service.
+- targets:
+    - https://infra.seed.example.com/healthz
+    - https://vault.seed.example.com/alive
+    - https://git.seed.example.com/api/healthz
+    - https://gw.seed.example.com/health/liveliness
+    - https://netbox.seed.example.com/login/
+    - https://infra.seed.example.com/sync/rest/noauth/health   # Syncthing (R1.41)
+# core's ntfy (rung 3), served by ntfy itself with its own certificate
+- targets:
+    - https://ntfy.seed.example.com/v1/health
+  labels: { host: core }

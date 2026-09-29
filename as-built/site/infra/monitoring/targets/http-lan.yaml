@@ -1,0 +1,6 @@
+# LAN endpoints without TLS that must answer 2xx. One line per service.
+# compute's model backend (rung 4; R4.10): the router's /health is open (no key). ProbeFailing fires after
+# 5 minutes down, including a hold by the supervisor or by a person (power window H held it 11 min).
+- targets:
+    - http://compute.seed.example.com:8080/health
+  labels: { host: compute }

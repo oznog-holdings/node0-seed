@@ -1,0 +1,7 @@
+[Unit]
+Description=Quarterly: the application restore reminder (first days of Jan, Apr, Jul, Oct)
+[Timer]
+OnCalendar=*-01,04,07,10-01 09:00:00
+Persistent=true
+[Install]
+WantedBy=timers.target

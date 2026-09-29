@@ -1,0 +1,23 @@
+# seed (rung 5 › B; R5.02): the router's DHCP leases on the LAN into DNS, as <hostname>.lan.seed.example.com
+# on ns1 (Technitium on core, 192.168.1.15), which transfers them to ns2. Run by dnsmasq's dhcp-script
+# through hotplug (ACTION add, update, remove; MACADDR, IPADDR, HOSTNAME). The credential in
+# /etc/seed/ddns.token (0600, from the site vault item "technitium ddns router") may view, modify and delete
+# records in lan.seed.example.com and nothing else. Leases outside 192.168.1.0/24 (guest, IoT) are never
+# registered. Each record also expires on its own 26 h after its last update (a lease is 12 h and
+# renews at half), so a missed "remove" can't leave it for ever. One syslog line per event (tag seed-ddns).
+# From site/router/files by site/router/config-tool; kept across upgrades by /etc/sysupgrade.conf.
+[ -r /etc/seed/ddns.token ] || return 0 2>/dev/null || exit 0
+case "$IPADDR" in 192.168.1.*) ;; *) return 0 2>/dev/null || exit 0 ;; esac
+seed_n=$(printf '%s' "$HOSTNAME" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9-' '-' | sed 's/^-*//; s/-*$//' | cut -c1-63)
+[ -n "$seed_n" ] || return 0 2>/dev/null || exit 0
+seed_q="zone=lan.seed.example.com&domain=$seed_n.lan.seed.example.com&type=A&ipAddress=$IPADDR"
+case "$ACTION" in
+  add|update) seed_op=add; seed_q="$seed_q&overwrite=true&ttl=300&expiryTtl=93600" ;;
+  remove) seed_op=delete ;;
+  *) return 0 2>/dev/null || exit 0 ;;
+esac
+seed_r=$(uclient-fetch -q -T 5 -O - --header="Authorization: Bearer $(cat /etc/seed/ddns.token)" \
+  --post-data="$seed_q" "http://192.168.1.15:5380/api/zones/records/$seed_op" 2>/dev/null)
+case "$seed_r" in *'"status":"ok"'*) seed_s=ok ;; *) seed_s="FAILED: $(printf '%s' "$seed_r" | sed -n 's/.*"errorMessage":"\([^"]*\)".*/\1/p' | cut -c1-120)" ;; esac
+logger -t seed-ddns "$ACTION $seed_n.lan.seed.example.com $IPADDR: $seed_s"
+unset seed_n seed_q seed_op seed_r seed_s

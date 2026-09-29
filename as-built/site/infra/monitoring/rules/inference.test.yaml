@@ -1,0 +1,44 @@
+# Unit tests for inference.yml (promtool test rules), sampled every 5 minutes like the producer.
+rule_files: [inference.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 5m
+    input_series:
+      - series: 'seed_gateway_selftest_success{instance="infra"}'
+        values: '1x3 0x8'
+      # succeeds at 0, 5, 10 min, then the backend stops answering (the timestamp stays at 600)
+      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra"}'
+        values: '0 300 600 600x10'
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GatewaySelftestFailing
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: GatewaySelftestFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra }
+            exp_annotations: { summary: "The model gateway on infra fails its own self-test: every model behind it is unreachable." }
+      - eval_time: 25m
+        alertname: InferenceBackendStale
+        exp_alerts: []
+      - eval_time: 35m
+        alertname: InferenceBackendStale
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra }
+            exp_annotations: { summary: "No completion from glm-4.7-flash-local (compute) through the gateway for 25m 0s. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+      - eval_time: 35m
+        alertname: InferenceProbeNeverSucceeded
+        exp_alerts: []
+  - interval: 5m
+    input_series:
+      - series: 'seed_gateway_selftest_success{instance="infra"}'
+        values: '1x10'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: InferenceProbeNeverSucceeded
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: InferenceProbeNeverSucceeded
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations: { summary: "The inference probe has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }

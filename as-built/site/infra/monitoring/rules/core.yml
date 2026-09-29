@@ -1,0 +1,53 @@
+# core (rung 3): monitoring OF it, from infra (design › Monitoring). Producers first (R1.80):
+# node_exporter on core with textfiles from seed-core-metrics, seed-power-watch, seed-deploy
+# and seed-restore-rehearsal. core's DNS and ntfy are probed by the blackbox (targets/dns.yaml,
+# targets/http.yaml); TargetDown and ProbeFailing cover them. Rules named Core* go to the
+# hosted ntfy topic (alertmanager.yml), since core's ntfy cannot report its own absence.
+groups:
+  - name: seed-core
+    rules:
+      - alert: CoreTimeUnsynced
+        expr: seed_chrony_synced == 0 or seed_chrony_sources_reachable == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "core's chrony (the site's NTP primary) is not synchronised or reaches no source." }
+      - alert: CoreFilesystemErrors
+        expr: increase(seed_rootfs_errors_total[1d]) > 0 or seed_rootfs_errors_total < 0
+        labels: { severity: critical }
+        annotations: { summary: "core's root filesystem (the SD card) recorded new ext4 errors (or they can't be read): plan a new card." }
+      - alert: CoreServiceDown
+        expr: seed_service_active == 0
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "core: {{ $labels.unit }} is not running." }
+      - alert: CoreMetricsStale
+        expr: (time() - seed_core_metrics_last_run_timestamp_seconds) > 20 * 60 or (time() - seed_power_watch_last_run_timestamp_seconds) > 10 * 60
+        labels: { severity: warning }
+        annotations: { summary: "core's own metrics or its power watch have stopped running." }
+      - alert: CoreCannotReadUps
+        expr: seed_power_ups_readable == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "core cannot read the UPS from infra's apcupsd (:3551): it would not see a power event." }
+      - alert: CoreCertExpiring
+        expr: (seed_cert_expiry_timestamp_seconds - time()) < 14 * 86400
+        labels: { severity: warning }
+        annotations: { summary: "The {{ $labels.name }} certificate on core expires in {{ $value | humanizeDuration }} (renewal is due 30 days before)." }
+      # the restore rehearsal from core (backups read from another box)
+      - alert: RehearsalFailed
+        expr: seed_restore_rehearsal_ok == 0
+        labels: { severity: critical }
+        annotations: { summary: "Restore rehearsal from core: the {{ $labels.check }} check of {{ $labels.repo }} failed." }
+      - alert: RehearsalSkipped
+        expr: seed_restore_rehearsal_skipped == 1
+        labels: { severity: warning }
+        annotations: { summary: "Restore rehearsal from core had nothing to restore from {{ $labels.repo }} (skipped is not success)." }
+      - alert: RehearsalStale
+        expr: (time() - seed_restore_rehearsal_last_success_timestamp_seconds) > 8 * 86400
+        labels: { severity: warning }
+        annotations: { summary: "No successful restore rehearsal from core for {{ $value | humanizeDuration }} (it runs weekly)." }
+      - alert: RehearsalMissing
+        expr: absent(seed_restore_rehearsal_last_attempt_timestamp_seconds{host="core"})
+        for: 1h
+        labels: { severity: warning }
+        annotations: { summary: "core publishes no restore rehearsal result at all." }

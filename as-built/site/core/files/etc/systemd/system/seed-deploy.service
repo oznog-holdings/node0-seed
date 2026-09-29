@@ -1,0 +1,9 @@
+[Unit]
+Description=Pull-deploy core from the forge's deploy ref (fails closed)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-deploy
+TimeoutStartSec=30min

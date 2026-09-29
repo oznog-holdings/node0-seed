@@ -1,0 +1,20 @@
+# The second site's replica (rung 5 › E): the newest snapshot that reached site2, per dataset, from site2's
+# own node_exporter (site2-replica-metrics, every 5 min). infra snapshots at :05 (replica-snap.sh) and site2
+# pulls at :15, so a healthy replica is at most ~70 min old; the brief's line is two hours.
+groups:
+  - name: replica
+    rules:
+      - alert: ReplicaStale
+        expr: time() - seed_replica_newest_snapshot_timestamp_seconds > 2 * 3600
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "site2's replica of {{ $labels.dataset }} is {{ $value | humanizeDuration }} old (over 2 h): check syncoid on site2 and replica-snap on infra." }
+      - alert: ReplicaKeyNotLoaded
+        expr: seed_replica_key_loaded == 0
+        for: 15m
+        labels: { severity: warning }
+        annotations: { summary: "site2/seed's key isn't loaded on site2: nothing can be received (site2-pool.service, /run/secrets/zfs_key)." }
+      - alert: ReplicaSnapshotsStale
+        expr: time() - seed_job_last_success_timestamp_seconds{task="replica-snap"} > 2 * 3600
+        labels: { severity: warning }
+        annotations: { summary: "infra's hourly replica snapshots last succeeded {{ $value | humanizeDuration }} ago (replica-snap, User Scripts)." }

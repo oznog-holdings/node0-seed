@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# The router's configuration from the repository (rung 5 brief › A; R5.01, R5.03).
+# site/router/config/<package> is `uci export <package>` as the site wants it, with two kinds of line
+# that are not the router's text:
+#   # lab-owned (not in the repository): <config line>   the lab's section stands here (network 'wan'
+#       and 'wan6', firewall rules named "fixture:*"); apply puts the router's own copy back, unread
+#   option key '<vault:ITEM>'                              a secret, from the site vault item ITEM
+# Subcommands:
+#   pull      write site/router/config/ from the live router (the lab's sections become markers, the
+#             wifi passphrases placeholders, each checked equal to its vault item by hash)
+#   check     the repository against the live router, in the drift check's normal form
+#             (uci-normal.awk); exit 1 and a redacted diff on a difference
+#   apply     render every package (markers <- the router's lab sections, placeholders <- the vault),
+#             compare with the router byte for byte, and import only the packages that differ, behind
+#             a 120 s rollback on the router that the agent box confirms after reachability checks.
+#             tools/router-fixture-hash.sh runs before and after; any change to it is a failure.
+#             `apply --dry-run` stops before importing. Then `expected`.
+#   expected  push the normal form to infra (/mnt/data/system/device-configs-expected/router.normal),
+#             which infra's daily device-config job compares with the router's export (RouterConfigDrift)
+# Files outside UCI (rung 5: the lease hook, its token, sysupgrade.conf) are site/router/files/<path>,
+# compared by sha256 and mode (a file whose whole content is <vault:ITEM> holds that item's password,
+# compared by hash). `check` and `apply` include them; infra's daily drift check covers UCI only.
+# The way back from any apply: tools/router-backup.sh first (sysupgrade -b, encrypted, in the repo).
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+R="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.1"
+INFRA="ssh -o BatchMode=yes -o LogLevel=ERROR root@192.168.1.10"
+C=site/router/config; N=site/router/uci-normal.awk
+pkgs() { ls "$C"; }
+normal() { awk -f $N | sort -s -t "$(printf '\t')" -k1,1; }
+repo_normal() { for p in $(pkgs); do cat "$C/$p"; done | normal; }
+live_normal() { $R "for p in $(pkgs | tr '\n' ' '); do uci export \$p; done" | normal; }
+fixture() { tools/router-fixture-hash.sh 2>/dev/null | tail -1 | grep -E '^[0-9a-f]{64}$' \
+  || { tools/router-ubus.sh login >/dev/null && tools/router-fixture-hash.sh | tail -1; }; }
+vault_open() {
+  . "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"
+  BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
+  trap 'bw lock >/dev/null 2>&1 || true' EXIT; bw sync >/dev/null; ITEMS=$(bw list items); bw lock >/dev/null 2>&1; unset BW_SESSION; }
+F=site/router/files
+fmode() { case $1 in etc/seed/*) echo 600 ;; usr/libexec/*) echo 755 ;; *) echo 644 ;; esac; }
+fperm() { case $(fmode "$1") in 600) echo -rw------- ;; 755) echo -rwxr-xr-x ;; *) echo -rw-r--r-- ;; esac; }   # as ls -l shows it (busybox: no stat)
+fsecret() { sed -n 's/^<vault:\(.*\)>$/\1/p' "$F/$1"; }
+fwant() { local s; s=$(fsecret "$1"); if [[ -n $s ]]; then vault_pw "$s" | tr -d '\n' | sha256sum | cut -c1-64; else sha256sum < "$F/$1" | cut -c1-64; fi; }
+files() { (cd $F && find . -type f | sed 's|^\./||' | sort); }
+# every file that differs from the repository, as "path: why" (the vault must be open for secret files)
+files_diff() { local have; have=$($R "for p in $(files | tr '\n' ' '); do if [ -f /\$p ]; then echo \"\$p \$(sha256sum < /\$p | cut -c1-64) \$(ls -l /\$p | cut -c1-10)\"; else echo \"\$p none none\"; fi; done")
+  while read -r p h m; do [[ $h == "$(fwant "$p")" ]] || { echo "$p: content"; continue; }; [[ $m == "$(fperm "$p")" ]] || echo "$p: mode $m"; done <<<"$have"; }
+vault_pw() { N="$1" jq -r '[.[] | select(.name==env.N)] | if length==1 then .[0].login.password else error("vault item not unique: " + env.N) end' <<<"$ITEMS"; }
+
+# the lab's sections of one package's export, as marker lines (for pull) or blocks keyed by header (for apply)
+LAB='function islab(h, body) { return (pkg == "network" && (h == "config interface '"'"'wan'"'"'" || h == "config interface '"'"'wan6'"'"'")) || (pkg == "firewall" && body ~ /\n[ \t]*option name '"'"'fixture:/) }'
+
+case ${1:-} in
+pull)
+  vault_open; mkdir -p $C
+  for p in $($R 'ls /etc/config'); do
+    # sections are blocks of non-blank lines; the lab's become one marker line; wifi keys a placeholder
+    $R "uci export $p" | awk -v pkg="$p" "$LAB"'
+      function out() { if (blk == "") return
+        if (islab(hdr, "\n" blk)) print "# lab-owned (not in the repository): " hdr
+        else { if (ssid != "") gsub(/\n\toption key '"'"'[^\n]*/, "\n\toption key '"'"'<vault:wifi " ssid ">'"'"'", blk); printf "%s", substr(blk, 1) }
+        blk = ""; hdr = ""; ssid = "" }
+      /^config / { hdr = $0 }
+      /^\toption ssid / { s = $0; sub(/^\toption ssid '"'"'/, "", s); sub(/'"'"'$/, "", s); ssid = s }
+      /^$/ { out(); print ""; next }
+      /^package / { print; next }
+      { blk = blk $0 "\n" }
+      END { out() }' > "$C/$p.new"
+    mv "$C/$p.new" "$C/$p"
+  done
+  # every placeholder equal to the router's value, by hash (no value printed)
+  for s in $(grep -ho "<vault:wifi [^>]*>" $C/wireless | sed 's/<vault:wifi //; s/>//'); do
+    sec=$($R "uci show wireless | grep \"\\.ssid='$s'\$\" | cut -d. -f2")
+    a=$($R "uci get wireless.$sec.key" | sha256sum); b=$(vault_pw "wifi $s" | sha256sum)
+    [[ $a == "$b" ]] && echo "wifi $s: the router's key equals the vault item (sha256)" || { echo "wifi $s: DIFFERS from the vault item"; exit 1; }
+  done
+  # nothing secret-named left in the clear except references (paths, rpcd's \$p\$ user reference)
+  if grep -nE "^\s*(option|list) (key|password|psk|sae_password|auth_secret|acct_secret|priv_key|private_key|preshared_key|secret|pass|passwd) " $C/* \
+      | grep -vE "'(<vault:[^>]+>|/etc/[^']+|\\\$p\\\$[a-z]+)'$"; then echo "a secret-named option is not a placeholder or reference"; exit 1; fi
+  git status --short -- $C ;;
+check)
+  rc=0
+  if diff <(repo_normal) <(live_normal) > /tmp/router-check.$$; then echo "router = repository ($(repo_normal | wc -l) lines compared)"; rm -f /tmp/router-check.$$
+  else echo "router differs from the repository (< repository, > router):"; cat /tmp/router-check.$$; rm -f /tmp/router-check.$$; rc=1; fi
+  vault_open; fd=$(files_diff)
+  if [[ -z $fd ]]; then echo "files = repository ($(files | wc -l) files, sha256 and mode)"; else echo "files differ:"; echo "$fd"; rc=1; fi
+  exit $rc ;;
+expected)
+  repo_normal | $INFRA 'd=/mnt/data/system/device-configs-expected; mkdir -p $d; cat > $d/router.normal.new && mv $d/router.normal.new $d/router.normal && sha256sum $d/router.normal'
+  echo "repository: $(repo_normal | sha256sum)" ;;
+apply)
+  dry=${2:-}
+  f0=$(fixture); echo "fixture hash before: $f0"
+  vault_open
+  changed=()
+  for p in $(pkgs); do
+    live=$($R "uci export $p")
+    # render: markers <- the router's own lab blocks (each exactly once, and every lab block needs a marker)
+    want=$(export LIVE="$live"; while IFS= read -r it; do n=V_$(printf '%s' "$it" | sha256sum | cut -c1-12); export "$n=$(vault_pw "$it" | sed "s/'/'\\\\''/g")"; done < <(grep -o "<vault:[^>]*>" "$C/$p" | sort -u | sed 's/<vault://; s/>//')
+      awk -v pkg="$p" "$LAB"'
+        BEGIN { n = split(ENVIRON["LIVE"] "\n", L, "\n"); blk = ""
+          for (i = 1; i <= n; i++) { if (L[i] ~ /^config /) { hdr = L[i]; blk = L[i] "\n" } else if (L[i] == "" && blk != "") { if (islab(hdr, "\n" blk)) { labs[hdr] = blk; nlab++ } blk = "" } else if (blk != "") blk = blk L[i] "\n" } }
+        /^# lab-owned \(not in the repository\): / { h = $0; sub(/^# lab-owned \(not in the repository\): /, "", h); if (!(h in labs)) { print "MISSING-LAB " h > "/dev/stderr"; bad = 1; next }
+          printf "%s", labs[h]; used[h] = 1; next }
+        { line = $0
+          while (match(line, /<vault:[^>]+>/)) { it = substr(line, RSTART + 7, RLENGTH - 8); cmd = "printf %s \"" it "\" | sha256sum | cut -c1-12"; cmd | getline hx; close(cmd)
+            v = ENVIRON["V_" hx]; if (v == "") { print "NO-VALUE " it > "/dev/stderr"; bad = 1 }
+            line = substr(line, 1, RSTART - 1) v substr(line, RSTART + RLENGTH) }
+          print line }
+        END { for (h in labs) if (!(h in used)) { print "UNMARKED-LAB " h > "/dev/stderr"; bad = 1 } exit bad }' "$C/$p")
+    if [[ "$want" == "$live" ]]; then echo "$p: unchanged"
+    else echo "$p: differs (redacted, < router, > repository):"; diff <(printf '%s\n' "$live" | normal) <(printf '%s\n' "$want" | normal) || true
+      changed+=("$p"); declare "WANT_$p=$want"; fi
+  done
+  fchanged=$(files_diff | cut -d: -f1 | sort -u)
+  for p in $fchanged; do echo "file /$p: differs"; done
+  if [[ -n $fchanged && $dry != --dry-run ]]; then
+    for p in $fchanged; do s=$(fsecret "$p")
+      if [[ -n $s ]]; then vault_pw "$s" | tr -d '\n'; else cat "$F/$p"; fi \
+        | $R "umask 077; mkdir -p \$(dirname /$p); cat > /$p.new && chmod $(fmode "$p") /$p.new && mv /$p.new /$p"; echo "file /$p: installed"
+    done
+    # dnsmasq passes leases to hotplug only when it started with a handler present (/etc/init.d/dnsmasq)
+    if grep -q '^etc/hotplug.d/dhcp/' <<<"$fchanged"; then $R '/etc/init.d/dnsmasq restart'; echo "dnsmasq restarted (its dhcp-script)"; fi
+  fi
+  unset ITEMS
+  if [[ ${#changed[@]} -eq 0 ]]; then echo "nothing to apply"
+  elif [[ $dry == --dry-run ]]; then echo "dry run: would import ${changed[*]}"
+  else
+    # the rollback: copies of the packages, and a timer that restores them unless confirmed in 120 s
+    $R "rm -rf /tmp/seed-apply; mkdir -m 700 /tmp/seed-apply; for p in ${changed[*]}; do cp -p /etc/config/\$p /tmp/seed-apply/\$p; done
+        ( sleep 120; if [ ! -e /tmp/seed-apply/confirmed ]; then for p in ${changed[*]}; do cp -p /tmp/seed-apply/\$p /etc/config/\$p; done; reload_config; logger -t seed-apply 'not confirmed: rolled back ${changed[*]}'; fi; rm -rf /tmp/seed-apply ) </dev/null >/dev/null 2>&1 &"
+    for p in "${changed[@]}"; do v=WANT_$p; printf '%s\n' "${!v}" | $R "uci import $p"; echo "$p: imported"; done
+    $R 'reload_config'; sleep 15
+    ok=1
+    $R true || ok=0
+    ping -c2 -W2 192.168.1.10 >/dev/null || ok=0
+    host -W 3 infra.seed.example.com 192.168.1.12 | grep -q 'has address 192\.168\.1\.10$' || ok=0
+    curl -s -o /dev/null -m 5 https://www.google.com/ || ok=0
+    if [[ $ok == 1 ]]; then $R 'touch /tmp/seed-apply/confirmed'; echo "confirmed (router, infra, DNS and the internet reachable)"
+    else echo "NOT confirmed: the router rolls back within 120 s of the import"; exit 1; fi
+  fi
+  f1=$(fixture); echo "fixture hash after:  $f1"
+  [[ $f0 == "$f1" ]] || { echo "FIXTURE HASH CHANGED"; exit 1; }
+  [[ $dry == --dry-run ]] && exit 0   # a dry run never moves infra's expected copy
+  "$0" check
+  "$0" expected ;;
+*) sed -n '2,22p' "$0"; exit 2 ;;
+esac

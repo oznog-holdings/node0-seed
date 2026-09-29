@@ -1,0 +1,130 @@
+# The model gateway (index › Rung 1 › Do 3; Why › model gateway; design › Services › LLM gateway).
+# One address for every model, spend metered per key. Every backend is an entry in this
+# list: adding one is a diff that touches no existing entry (principle 8, X.06).
+# Provider API keys are not here: they go into the vault and reach the gateway as
+# environment variables (os.environ/...). Keys for people and agents are virtual keys
+# created through the gateway's API, one per person or agent, each in the vault.
+
+model_list:
+  # Test backend: answers without calling any provider, with a stated price, so metering
+  # per key can be proven before any provider account exists. Keep: it is the gateway's
+  # own smoke test (seed-metrics.sh section 8 calls it every 5 minutes with the monitoring-probe key).
+  - model_name: seed-selftest
+    litellm_params:
+      model: openai/seed-selftest
+      mock_response: "ok"
+      input_cost_per_token: 0.000001
+      output_cost_per_token: 0.000002
+
+  # Hosted backends: disabled, not deleted (design › Deploying). Condition to enable: the
+  # provider API key exists in the vault ("<provider> api key") and the owner approves the
+  # spend. Then uncomment and add the key to litellm.env.
+  # - model_name: claude-opus-5-5
+  #   litellm_params:
+  #     model: anthropic/claude-opus-5-5
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+  # - model_name: claude-sonnet-5
+  #   litellm_params:
+  #     model: anthropic/claude-sonnet-5
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+
+  # Hosted, z.ai: the owner's GLM Coding Plan key (20260927, the owner's decision: configuration,
+  # testing and proof; F-ZAI-CODING-PLAN records that the plan's terms list coding tools, not a
+  # gateway). External and a subscription: coding traffic only. Only keys that name this model may
+  # use it (today the agent box's `agent` key); nothing scheduled holds it (the monitoring probe
+  # doesn't). Limits: at most 2 in flight here (max_parallel_requests); 60 requests an hour on the
+  # key (model_rpm_limit with LITELLM_RATE_LIMIT_WINDOW_SIZE=3600, rendered into litellm.env). When
+  # z.ai refuses or the limit is reached, router_settings falls back to the local model.
+  - model_name: glm-5.3-coding
+    litellm_params:
+      model: openai/glm-5.3
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/ZAI_API_KEY
+      max_parallel_requests: 2
+      timeout: 300
+      input_cost_per_token: 0         # a subscription: no per-token cost; the plan's quota instead
+      output_cost_per_token: 0
+    model_info:
+      tags: [external, subscription]
+      traffic: coding
+
+  # Local backends (rung 4): one entry per compute box. The model and its ceiling are pinned in
+  # site/laptop/inference/pins; the Mac answers only this key (vault "compute llama api key").
+  # Cost 0: local tokens are still counted per key; spend stays the hosted money.
+  - model_name: glm-4.7-flash-local
+    litellm_params:
+      model: openai/glm-4.7-flash
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 600                  # the first request after idle reloads the model (sleep-idle 900 s)
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+
+  # Rung 4b (site/laptop/inference/rung4b.md): one named route per kind, all on compute's router
+  # (llama.cpp router mode; the model is chosen by name there). Only local-code falls back to hosted
+  # (below); the others fail closed: no fallback, and no hosted deployment shares their names.
+  - model_name: local-chat          # chat: fails closed (the only hosted plan is for coding tools)
+    litellm_params:
+      model: openai/glm-4.7-flash
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 600
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: local-code          # coding: falls back to glm-5.3-coding (router_settings)
+    litellm_params:
+      model: openai/glm-4.7-flash
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 600
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+    model_info:
+      traffic: coding
+  - model_name: local-embed         # embeddings: fails closed (another model's vectors don't compare)
+    litellm_params:
+      model: openai/qwen3-embedding-4b
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 300
+      input_cost_per_token: 0
+    model_info:
+      mode: embedding
+  - model_name: local-rerank        # reranking: fails closed; llama.cpp's /v1/rerank speaks the vLLM/Jina API
+    litellm_params:
+      model: hosted_vllm/qwen3-reranker-0.6b
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 300
+    model_info:
+      mode: rerank
+  - model_name: local-stt           # speech-to-text: fails closed, always (private audio; the owner's rule)
+    litellm_params:
+      # mistral/ is only the response parser: its transform accepts llama.cpp's transcription answer,
+      # while openai/ rejects its usage object (input_tokens_details, not input_token_details; 20260928).
+      # The api_base is the Mac: nothing goes to Mistral.
+      model: mistral/qwen3-asr-1.7b
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 600
+    model_info:
+      mode: audio_transcription
+
+router_settings:
+  # z.ai refusing (429, 5xx, auth) or the limit reached: the same request goes to the Mac.
+  # local-code: the Mac down or refusing, the same request goes to z.ai, for keys that also name
+  # glm-5.3-coding (rung4b.md). No other local route has a fallback: they fail closed.
+  fallbacks: [{"glm-5.3-coding": ["glm-4.7-flash-local"]}, {"local-code": ["glm-5.3-coding"]}]
+  num_retries: 0
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false          # the backend list lives in this file, not in the UI (rung 4: "written in the repo")
+  disable_spend_logs: false
+
+litellm_settings:
+  drop_params: true
+  telemetry: false
+  # no prompt or response content in logs: spend and counts only (design › Monitoring: no personal data)
+  turn_off_message_logging: true

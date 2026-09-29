@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>rest-server</Name>
+  <Repository>restic/rest-server:0.14.0@sha256:d2aff06f47eb38637dff580c3e6bce4af98f386c396a25d32eb6727ec96214a5</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: restic rest-server for the laptops and the agent box (design: Backups, flow 2). --append-only (clients cannot delete), --private-repos (one repository per machine, each user only its own). Behind Caddy at rest.seed.example.com; HTTP on 127.0.0.1 only.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 127.0.0.1:8000:8000 --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/data" Default="" Mode="rw" Description="one repository per machine" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/backups/rest</Config>
+  <Config Name="htpasswd" Target="/etc/rest-server/htpasswd" Default="" Mode="ro" Description="one bcrypt line per machine, 0600, from the vault" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/secrets/rest-server.htpasswd</Config>
+  <Config Name="PASSWORD_FILE" Target="PASSWORD_FILE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/etc/rest-server/htpasswd</Config>
+  <Config Name="DATA_DIRECTORY" Target="DATA_DIRECTORY" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/data</Config>
+  <Config Name="OPTIONS" Target="OPTIONS" Default="" Mode="" Description="append-only is the point: forget and prune run on the server, as the one writer" Type="Variable" Display="always" Required="true" Mask="false">--append-only --private-repos --prometheus --prometheus-no-auth</Config>
+</Container>

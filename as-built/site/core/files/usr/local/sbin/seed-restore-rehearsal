@@ -1,0 +1,80 @@
+#!/bin/bash
+# The restore rehearsal, from core (index › Rung 3: "the restore rehearsal, so backups are read
+# from somewhere other than the box that wrote them"; design › Backups). Weekly:
+#  1. freshness: the newest snapshot of infra's B2 repository (flow 1);
+#  2. files: three small files in rotation (offset from infra's own weekly pick, so the two
+#     cover different files), restored with --verify, so each is checked against the hashes
+#     the repository recorded; "skipped" (no candidates) is its own alarm;
+#  3. an application restore: the newest Vaultwarden dump, restored and opened with sqlite3
+#     (integrity_check, and its tables have rows).
+# Read-only by construction: every restic call is --no-lock. The key in use is the site's
+# writer key (no delete) until a read-only key exists (Needs hands). Restored data goes to
+# /tmp, a tmpfs on core, so it never touches the SD card; no restic cache either.
+# Results for the monitoring, ages and states only: seed_restore_rehearsal_* in
+# /var/lib/prometheus/node-exporter/seed-restore.prom.
+set -uo pipefail
+umask 077
+set -a; . /etc/seed/restic-b2.env; set +a
+tf=/var/lib/prometheus/node-exporter; st=/var/lib/seed-restore; mkdir -p $st $tf
+scratch=$(mktemp -d /tmp/rehearsal.XXXXXX); trap 'rm -rf -- "$scratch"' EXIT
+log() { echo "$(date -u +%FT%TZ) $*"; }
+R() { timeout 1800 restic --no-lock --no-cache "$@"; }
+now=$(date +%s); repo=b2-infra
+files=0 app=0 skipped=0 age=-1
+
+# 1. freshness
+newest=0
+while read -r t; do e=$(date -d "$t" +%s) && [ "$e" -gt "$newest" ] && newest=$e; done \
+  < <(R snapshots --json --host infra --latest 1 2>/dev/null | jq -r '.[].time')
+if [ "$newest" -gt 0 ]; then age=$(( now - newest )); log "$repo: newest snapshot $(( age / 3600 )) h old"
+else log "$repo: no snapshot readable (repository or key)"; fi
+
+if [ "$newest" -gt 0 ]; then
+  R ls latest --host infra --json 2>/dev/null > "$scratch/ls.json"
+  # 2. three small files in rotation, half the list away from infra's weekly pick
+  mapfile -t cand < <(jq -r 'select(.type=="file" and .size > 0 and .size < 2000000) | .path' "$scratch/ls.json" | sort)
+  n=${#cand[@]}
+  if [ "$n" -eq 0 ]; then log "$repo: restore test SKIPPED (no candidates)"; skipped=1
+  else
+    week=$(date +%V); picks=(); for i in 0 1 2; do picks+=("${cand[$(( (10#$week * 3 + i + n / 2) % n ))]}"); done
+    inc=(); for f in "${picks[@]}"; do inc+=(--include "$f"); done
+    if R restore latest --host infra --target "$scratch/files" --verify "${inc[@]}" >/dev/null 2>&1; then
+      ok=1; for f in "${picks[@]}"; do
+        want=$(jq -r --arg p "$f" 'select(.path==$p) | .size' "$scratch/ls.json")
+        have=$(stat -c %s "$scratch/files$f" 2>/dev/null || echo missing)
+        if [ "$have" = "$want" ]; then log "$repo: restored and verified: $f ($have bytes)"
+        else ok=0; log "$repo: $f: size $have, repository says $want"; fi
+      done
+      files=$ok
+    else log "$repo: restore of the three files FAILED"; fi
+  fi
+  # 3. application restore: the newest Vaultwarden dump
+  dump=$(jq -r 'select(.type=="file" and (.path | test("^/mnt/data/appdata/vaultwarden/dumps/db_.*\\.sqlite3$"))) | .path' "$scratch/ls.json" | sort | tail -1)   # db_YYYYMMDD_HHMMSS: the name sorts by time
+  if [ -z "$dump" ]; then log "$repo: application restore SKIPPED (no Vaultwarden dump in the snapshot)"; skipped=1
+  elif R restore latest --host infra --target "$scratch/app" --verify --include "$dump" >/dev/null 2>&1 \
+       && [ "$(sqlite3 -readonly "$scratch/app$dump" 'PRAGMA integrity_check;')" = ok ] \
+       && [ "$(sqlite3 -readonly "$scratch/app$dump" 'SELECT (SELECT count(*) FROM users) > 0 AND (SELECT count(*) FROM ciphers) > 0;')" = 1 ]; then
+    app=1; log "$repo: application restore ok: $(basename "$dump") opens, integrity ok, users and items present"
+  else log "$repo: application restore FAILED for $dump"; fi
+fi
+
+all=$([ $files = 1 ] && [ $app = 1 ] && [ $skipped = 0 ] && echo 1 || echo 0)
+[ $all = 1 ] && echo $now > $st/last-success
+{ echo "# HELP seed_restore_rehearsal_ok 1 if the check passed on core's last rehearsal."
+  echo "# TYPE seed_restore_rehearsal_ok gauge"
+  echo "seed_restore_rehearsal_ok{repo=\"$repo\",check=\"files\"} $files"
+  echo "seed_restore_rehearsal_ok{repo=\"$repo\",check=\"app\"} $app"
+  echo "# HELP seed_restore_rehearsal_skipped 1 if something had nothing to restore (its own alarm)."
+  echo "# TYPE seed_restore_rehearsal_skipped gauge"
+  echo "seed_restore_rehearsal_skipped{repo=\"$repo\"} $skipped"
+  echo "# TYPE seed_restore_rehearsal_snapshot_age_seconds gauge"
+  echo "seed_restore_rehearsal_snapshot_age_seconds{repo=\"$repo\"} $age"
+  echo "# TYPE seed_restore_rehearsal_last_attempt_timestamp_seconds gauge"
+  echo "seed_restore_rehearsal_last_attempt_timestamp_seconds $now"
+  if [ -s $st/last-success ]; then
+    echo "# TYPE seed_restore_rehearsal_last_success_timestamp_seconds gauge"
+    echo "seed_restore_rehearsal_last_success_timestamp_seconds $(cat $st/last-success)"
+  fi
+} > $tf/seed-restore.prom.tmp && chmod 0644 $tf/seed-restore.prom.tmp && mv $tf/seed-restore.prom.tmp $tf/seed-restore.prom   # umask 077 above: node_exporter must read it
+log "rehearsal: files=$files app=$app skipped=$skipped"
+[ $all = 1 ]

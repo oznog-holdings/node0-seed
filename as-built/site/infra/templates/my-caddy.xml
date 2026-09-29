@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>caddy</Name>
+  <Repository>seed/caddy:2.11.4-dnsimple</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: HTTPS front door, wildcard certificate by DNS-01 (design: Services, Network).</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--env-file=/mnt/data/system/secrets/caddy.env --env-file=/mnt/data/system/secrets/caddy-auth.env --restart=unless-stopped</ExtraParams>
+  <PostArgs></PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Caddyfile" Target="/etc/caddy/Caddyfile" Default="" Mode="ro" Description="from the site repo" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/caddy/Caddyfile</Config>
+  <Config Name="data" Target="/data" Default="" Mode="rw" Description="certificates and ACME account" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/caddy/data</Config>
+  <Config Name="config" Target="/config" Default="" Mode="rw" Description="autosave" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/caddy/config</Config>
+  <Config Name="ACME_CA" Target="ACME_CA" Default="https://acme-v02.api.letsencrypt.org/directory" Mode="" Description="staging first, then production" Type="Variable" Display="always" Required="true" Mask="false">https://acme-v02.api.letsencrypt.org/directory</Config>
+</Container>

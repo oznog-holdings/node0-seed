@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Technitium from the repository: see push.py. The admin passwords go vault -> environment -> python
+# (never argv, never a file). Usage: site/dns/technitium/push [check]
+set -euo pipefail
+cd "$(dirname "$0")/../../.."
+. "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"   # the site vault (SEED_VAULT=hosted: break-glass)
+BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
+items=$(bw list items); bw lock >/dev/null 2>&1; unset BW_SESSION
+vpw() { N="$1" jq -r '[.[] | select(.name==env.N)] | if length==1 then .[0].login.password else error("vault item missing or not unique: " + env.N) end' <<<"$items"; }
+TECHNITIUM_PW_CORE=$(vpw 'technitium core admin'); TECHNITIUM_PW_INFRA=$(vpw 'technitium infra admin'); unset items
+export TECHNITIUM_PW_CORE TECHNITIUM_PW_INFRA
+exec nix-shell -p 'python3.withPackages(p: [p.pyyaml])' --run "python3 site/dns/technitium/push.py ${1:-}"

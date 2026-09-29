@@ -1,0 +1,40 @@
+# Technitium DNS on core (rung 5): ns1.seed.example.com, the primary, on core's second address
+# 192.168.1.15 (DNS :53; its API and console :5380, for the agent box's push and the router's lease
+# updates, nftables.conf). Settings, zones and users come from site/dns/technitium/push, not from
+# here; this unit only sets what the server must know at its first start. Pins: site/core/pins.
+[Unit]
+Description=Technitium DNS Server (ns1, the primary; rung 5)
+After=network-online.target NetworkManager-wait-online.service
+Wants=network-online.target
+
+[Service]
+User=technitium
+Group=technitium
+Environment=DOTNET_ROOT=/opt/dotnet/current
+Environment=DOTNET_CLI_TELEMETRY_OPTOUT=1
+Environment=DNS_SERVER_DOMAIN=ns1.seed.example.com
+Environment=DNS_SERVER_ADMIN_PASSWORD_FILE=/etc/seed/technitium-admin
+Environment=DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES=192.168.1.15,127.0.0.1
+Environment=DNS_SERVER_WEB_SERVICE_HTTP_PORT=5380
+Environment=DNS_SERVER_RECURSION=UseSpecifiedNetworkACL
+Environment=DNS_SERVER_RECURSION_NETWORK_ACL=127.0.0.1,192.168.1.0/24
+# core's writes are kept low (site/core/README.md): statistics in memory, no query log
+Environment=DNS_SERVER_STATS_ENABLE_IN_MEMORY_STATS=true
+Environment=DNS_SERVER_LOG_FOLDER_PATH=/var/log/technitium
+Environment=DNS_SERVER_LOG_MAX_LOG_FILE_DAYS=30
+ExecStart=/opt/dotnet/current/dotnet /opt/technitium/current/DnsServerApp.dll /var/lib/technitium
+StateDirectory=technitium
+StateDirectoryMode=0750
+LogsDirectory=technitium
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+MemoryMax=768M
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

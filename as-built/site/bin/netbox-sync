@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""NetBox as the site's second inventory record (deviation D.02), kept equal to hosts.md.
+
+hosts.md is the source: name, address, MAC, and whether the box has arrived. The table
+below adds what hosts.md says in prose (role, maker, model, device or VM). Idempotent: it
+creates what is missing and corrects what differs; it never deletes (a box leaving the
+site is a separate, observed step).
+  netbox-sync          apply hosts.md to NetBox
+  netbox-sync --check  compare only; exit 1 on any difference (the X.03 / D.02 check)
+Token: NB_TOKEN in the environment (vault item "netbox api token builder").
+"""
+import os, re, sys, requests
+
+NB = 'https://netbox.seed.example.com/api'
+S = requests.Session()
+S.headers.update({'Authorization': f"Bearer {os.environ['NB_TOKEN']}", 'Accept': 'application/json'})
+CHECK = '--check' in sys.argv
+SITE = 'seed-bench'
+
+KIND = {  # name: (role, manufacturer, model, 'device' | 'vm')
+    'router':  ('router',  'OpenWrt',      'OpenWrt One',             'device'),
+    'infra':   ('infra',   'TerraMaster',  'F8 SSD Plus',             'device'),
+    'agent':   ('agent',   'Chuwi',        'LarkBox X',               'device'),
+    'core':    ('core',    'Raspberry Pi', 'Raspberry Pi 4',          'device'),
+    'agentvm': ('agent',   None,           None,                      'vm'),
+    'compute': ('compute', 'Apple',        'MacBook Pro M1 Max 64GB', 'device'),
+    'laptop':     ('laptop',  'Generic',      'Workstation (borrowed)',  'device'),
+    'larkbox1': ('spare',  'Chuwi',        'LarkBox X',               'device'),
+    'sandbox': ('sandbox', None,           None,                      'vm'),
+    # rung 5: the two Technitium servers. ns1 is a second address on core's interface (no box of its
+    # own); ns2 is a container on infra with its own MAC, recorded as a VM (NetBox has no containers)
+    'ns1':     ('dns',     None,           None,                      'ip:core'),
+    'ns2':     ('dns',     None,           None,                      'vm'),
+    # rung 5 › E: the second site, a VM elsewhere, known by its tailnet address only
+    'fw':      ('firewall', 'Chuwi',       'LarkBox X',               'device'),
+    'site2':   ('replica', None,           None,                      'vm'),
+}
+
+def hosts():
+    rows = {}
+    here = os.path.dirname(os.path.abspath(__file__))
+    intable = False
+    for line in open(os.path.join(here, '..', 'hosts.md')):
+        # the hosts table only (the first table; the recovery-pack table below it isn't hosts: 20260929)
+        if line.startswith('| name |'): intable = True; continue
+        if intable and not line.startswith('|'): break
+        if not intable: continue
+        c = [x.strip() for x in line.strip().strip('|').split('|')]
+        if len(c) != 6 or c[0] in ('name', '---') or c[0].startswith('-'): continue
+        name, _role, addr, mac, _loc, arrival = c
+        if addr in (', ', '-', ''): continue   # no address, nothing to record (the unmanaged switch)
+        ip = re.match(r'(\d+\.\d+\.\d+\.\d+)', addr)
+        m = re.match(r'([0-9a-f]{2}(?::[0-9a-f]{2}){5})', mac)
+        rows[name] = {'ip': ip.group(1) if ip else None, 'mac': m.group(1).upper() if m else None,
+                      'arrived': not arrival.startswith('not yet')}
+    return rows
+
+def slug(s): return re.sub(r'[^a-z0-9]+', '-', s.lower()).strip('-')
+diffs = []
+def get(path, **q):
+    r = S.get(f'{NB}/{path}/', params=q); r.raise_for_status(); return r.json()['results']
+def ensure(path, match, body):
+    found = get(path, **match)
+    if found:
+        obj = found[0]
+        want = {k: v for k, v in body.items() if not isinstance(v, dict)}
+        have = {k: (obj[k]['id'] if isinstance(obj.get(k), dict) and 'id' in obj[k] else
+                    obj[k]['value'] if isinstance(obj.get(k), dict) and 'value' in obj[k] else obj.get(k)) for k in want}
+        delta = {k: v for k, v in want.items() if have.get(k) != v}
+        if delta:
+            diffs.append(f'{path} {match}: {delta} (NetBox has {({k: have.get(k) for k in delta})})')
+            if not CHECK:
+                r = S.patch(f"{NB}/{path}/{obj['id']}/", json=delta); r.raise_for_status(); obj = r.json()
+        return obj
+    diffs.append(f'{path} {match}: missing')
+    if CHECK: return None
+    r = S.post(f'{NB}/{path}/', json=body)
+    if not r.ok: sys.exit(f'{path} {body}: {r.status_code} {r.text[:300]}')
+    return r.json()
+
+site = ensure('dcim/sites', {'slug': SITE}, {'name': 'seed bench', 'slug': SITE, 'status': 'active'})
+cltype = ensure('virtualization/cluster-types', {'slug': 'unraid'}, {'name': 'Unraid', 'slug': 'unraid'})
+cluster = ensure('virtualization/clusters', {'name': 'infra'}, {'name': 'infra', 'type': cltype and cltype['id'], 'status': 'active'}) if cltype else None
+
+for name, h in hosts().items():
+    if name not in KIND: diffs.append(f'{name}: in hosts.md but not in netbox-sync KIND'); continue
+    role, mfr, model, kind = KIND[name]
+    status = 'active' if h['arrived'] else 'planned'
+    if kind.startswith('ip:'):   # an extra address on another host's LAN interface
+        dev = get('dcim/devices', name=kind[3:]); ifc = get('dcim/interfaces', device_id=dev[0]['id'], name='lan') if dev else []
+        if not ifc: diffs.append(f'{name}: {kind[3:]} or its lan interface missing'); continue
+        if h['ip']: ensure('ipam/ip-addresses', {'address': h['ip'] + '/24'}, {'address': h['ip'] + '/24', 'status': 'active' if h['arrived'] else 'reserved',
+                           'dns_name': f'{name}.seed.example.com', 'assigned_object_type': 'dcim.interface', 'assigned_object_id': ifc[0]['id']})
+        continue
+    r = ensure('dcim/device-roles', {'slug': role}, {'name': role, 'slug': role, 'vm_role': True})
+    if kind == 'device':
+        m = ensure('dcim/manufacturers', {'slug': slug(mfr)}, {'name': mfr, 'slug': slug(mfr)})
+        dt = ensure('dcim/device-types', {'slug': slug(model)}, {'manufacturer': m and m['id'], 'model': model, 'slug': slug(model)}) if m else None
+        obj = ensure('dcim/devices', {'name': name}, {'name': name, 'role': r and r['id'], 'device_type': dt and dt['id'], 'site': site and site['id'], 'status': status}) if dt and r and site else None
+        ipath, fk, ifname = 'dcim/interfaces', 'device_id', 'lan'
+        itype = {'type': 'other'}
+    else:
+        obj = ensure('virtualization/virtual-machines', {'name': name}, {'name': name, 'role': r and r['id'], 'cluster': cluster and cluster['id'], 'site': site and site['id'], 'status': status}) if r and cluster else None
+        ipath, fk, ifname = 'virtualization/interfaces', 'virtual_machine_id', 'lan'
+        itype = {}
+    if not obj: continue
+    owner = {'device': obj['id']} if kind == 'device' else {'virtual_machine': obj['id']}
+    iface = ensure(ipath, {fk: obj['id'], 'name': ifname}, {**owner, 'name': ifname, **itype})
+    if not iface: continue
+    otype = 'dcim.interface' if kind == 'device' else 'virtualization.vminterface'
+    if h['mac']:
+        mac = ensure('dcim/mac-addresses', {'mac_address': h['mac']}, {'mac_address': h['mac'], 'assigned_object_type': otype, 'assigned_object_id': iface['id']})
+        if mac and (iface.get('primary_mac_address') or {}).get('id') != mac['id']:
+            diffs.append(f'{name}: primary MAC not {h["mac"]}')
+            if not CHECK: S.patch(f"{NB}/{ipath}/{iface['id']}/", json={'primary_mac_address': mac['id']}).raise_for_status()
+    if h['ip']:
+        pl = '/32' if h['ip'].startswith('100.') else '/24'   # a tailnet address is a host of its own, not the LAN
+        ip = ensure('ipam/ip-addresses', {'address': h['ip'] + pl}, {'address': h['ip'] + pl, 'status': 'active' if h['arrived'] else 'reserved',
+                    'dns_name': f'{name}.seed.example.com', 'assigned_object_type': otype, 'assigned_object_id': iface['id']})
+        if ip and (obj.get('primary_ip4') or {}).get('id') != ip['id']:
+            diffs.append(f'{name}: primary IPv4 not {h["ip"]}')
+            if not CHECK: S.patch(f"{NB}/{'dcim/devices' if kind == 'device' else 'virtualization/virtual-machines'}/{obj['id']}/", json={'primary_ip4': ip['id']}).raise_for_status()
+
+# the networks table (rung 6 › F): a VLAN per tagged network, a prefix per subnet (the VLAN attached)
+def networks():
+    rows, intable = [], False
+    for line in open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'hosts.md')):
+        if line.startswith('| network |'): intable = True; continue
+        if intable and not line.startswith('|'): break
+        if not intable: continue
+        c = [x.strip() for x in line.strip().strip('|').split('|')]
+        if len(c) != 6 or c[0].startswith('-'): continue
+        rows.append({'name': c[0], 'vid': int(c[1]) if c[1].isdigit() else None, 'prefix': c[2], 'role': c[4]})
+    return rows
+for n in networks():
+    vlan = ensure('ipam/vlans', {'vid': n['vid'], 'site_id': site['id']} if site else {'vid': n['vid']},
+                  {'vid': n['vid'], 'name': n['name'], 'site': site and site['id'], 'status': 'active'}) if n['vid'] else None
+    body = {'prefix': n['prefix'], 'status': 'active', 'description': f"{n['name']}: {n['role']}"[:200]}
+    if vlan: body['vlan'] = vlan['id']
+    ensure('ipam/prefixes', {'prefix': n['prefix']}, body)
+
+print('\n'.join(diffs) if diffs else 'NetBox matches hosts.md')
+print(f"{'check' if CHECK else 'sync'}: {len(diffs)} difference(s)")
+sys.exit(1 if (CHECK and diffs) else 0)

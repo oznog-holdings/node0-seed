@@ -1,0 +1,40 @@
+# The agent box (rung 2): monitoring OF it, from infra (design › Monitoring). Producers: its
+# node_exporter and textfile metrics (pull-deploy, watcher, nightly build, backup-work), deployed
+# before these rules (R1.80). Its /work backup age is covered by BackupStale (repo rest-agent).
+# The alert path about infra itself leaves from the agent box (the watcher, straight to ntfy).
+groups:
+  - name: seed-agent
+    rules:
+      # pull-deploy on every box that has one (the agent box, and core from rung 3)
+      - alert: DeployFailing
+        expr: seed_deploy_last_result == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.host }}: pull-deploy failing at stage {{ $labels.stage }} (it fails closed: the box stays as it was)." }
+      - alert: DeployStale
+        expr: (time() - seed_deploy_last_success_timestamp_seconds) > 3600
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.host }}: no successful pull-deploy for {{ $value | humanizeDuration }} (it runs every 15 minutes)." }
+      - alert: AgentWatcherStale
+        expr: (time() - seed_watcher_last_run_timestamp_seconds) > 20 * 60
+        labels: { severity: critical }
+        annotations: { summary: "The watcher on the agent box has not run for {{ $value | humanizeDuration }}: infra's outside view is gone." }
+      # /work isn't the pinned filesystem (reformatted or replaced): the agent's state mounts and
+      # the /work backup refuse to start (modules/work-state.nix, F-REBUILD-STATE)
+      - alert: AgentWorkGuard
+        expr: seed_work_guard_ok == 0
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }}: /work is not the pinned filesystem; the agent's state mounts and the /work backup refused to start." }
+      - alert: AgentWatcherFailing
+        expr: seed_watcher_ok == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "The agent box's watcher sees a failure (it has already sent its own line to ntfy)." }
+      - alert: BuildCheckFailed
+        expr: seed_build_check_last_result == 0
+        labels: { severity: warning }
+        annotations: { summary: "The nightly build of every host's closure from deploy failed: a deploy would fail too." }
+      - alert: BuildCheckStale
+        expr: (time() - seed_build_check_last_attempt_timestamp_seconds) > 26 * 3600
+        labels: { severity: warning }
+        annotations: { summary: "The nightly build check has not run for {{ $value | humanizeDuration }}." }

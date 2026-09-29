@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>forgejo</Name>
+  <Repository>codeberg.org/forgejo/forgejo:15.0.9-rootless@sha256:caf1bca332f95cdcf124227a4bfa3b49bbbfbbc8a5e4a97406921cb581165413</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: the site's git forge, repo of record and deploy source (deviation D.03). Forgejo 15 LTS, rootless, SQLite. HTTP on 127.0.0.1 behind Caddy (git.seed.example.com); git over ssh on the LAN at 192.168.1.10:2222.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 127.0.0.1:3001:3000 -p 192.168.1.10:2222:2222 --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/var/lib/gitea" Default="" Mode="rw" Description="repositories, SQLite, attachments; app.ini with its generated secrets at custom/conf (this image's GITEA_APP_INI)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/forgejo/data</Config>
+  <Config Name="FORGEJO__database__DB_TYPE" Target="FORGEJO__database__DB_TYPE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">sqlite3</Config>
+  <Config Name="FORGEJO__server__DOMAIN" Target="FORGEJO__server__DOMAIN" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">git.seed.example.com</Config>
+  <Config Name="FORGEJO__server__ROOT_URL" Target="FORGEJO__server__ROOT_URL" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">https://git.seed.example.com/</Config>
+  <Config Name="FORGEJO__server__SSH_DOMAIN" Target="FORGEJO__server__SSH_DOMAIN" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">git.seed.example.com</Config>
+  <Config Name="FORGEJO__server__SSH_PORT" Target="FORGEJO__server__SSH_PORT" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">2222</Config>
+  <Config Name="FORGEJO__security__INSTALL_LOCK" Target="FORGEJO__security__INSTALL_LOCK" Default="" Mode="" Description="no web installer; configured from this template" Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="FORGEJO__service__DISABLE_REGISTRATION" Target="FORGEJO__service__DISABLE_REGISTRATION" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="FORGEJO__service__REQUIRE_SIGNIN_VIEW" Target="FORGEJO__service__REQUIRE_SIGNIN_VIEW" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="FORGEJO__repository__DEFAULT_PRIVATE" Target="FORGEJO__repository__DEFAULT_PRIVATE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">private</Config>
+  <Config Name="FORGEJO__openid__ENABLE_OPENID_SIGNIN" Target="FORGEJO__openid__ENABLE_OPENID_SIGNIN" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+  <Config Name="FORGEJO__openid__ENABLE_OPENID_SIGNUP" Target="FORGEJO__openid__ENABLE_OPENID_SIGNUP" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+</Container>

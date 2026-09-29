@@ -1,0 +1,6 @@
+# Technitium's block lists (rung 5; the owner's decision 1 of 20260928: chosen and pinned in the repository).
+# The same list AdGuard used (its default, "AdGuard DNS filter", adblock syntax, which Technitium reads),
+# pinned to a commit of AdguardTeam/HostlistsRegistry so its content can't change under us. To move the pin:
+# a newer commit's URL, its sha256 (curl | sha256sum) here, then site/dns/technitium/push.
+# url  sha256-at-pin  fetched
+https://raw.githubusercontent.com/AdguardTeam/HostlistsRegistry/d5041d37c2a5e2b80f6b1545a42969e29f9d2f0e/assets/filter_1.txt 441cb80c2a7eca8616b8410c8c4b11d2d74a5277ec43883265028ee7add14af5 20260929

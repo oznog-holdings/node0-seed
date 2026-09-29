@@ -1,0 +1,7 @@
+[Unit]
+Description=Yearly: the bucket lifecycle check reminder (1 October)
+[Timer]
+OnCalendar=*-10-01 09:05:00
+Persistent=true
+[Install]
+WantedBy=timers.target

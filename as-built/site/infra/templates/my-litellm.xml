@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>litellm</Name>
+  <Repository>ghcr.io/berriai/litellm-database:v1.102.1@sha256:c38fe5eff11874941a21f5630ceb842f640dee7d5d5cde440b60ed0a71798f33</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: the model gateway (index: Rung 1). One address for every model, spend metered per key. Backends in the site repo (litellm/config.yaml). HTTP on 127.0.0.1 behind Caddy (gw.seed.example.com).</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 127.0.0.1:4000:4000 --add-host=db.internal:host-gateway --env-file=/mnt/data/system/secrets/litellm.env --restart=unless-stopped</ExtraParams>
+  <PostArgs>--config /app/config.yaml --port 4000 --num_workers 1</PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="config.yaml" Target="/app/config.yaml" Default="" Mode="ro" Description="backends and settings, from the site repo" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/litellm/config.yaml</Config>
+  <Config Name="STORE_MODEL_IN_DB" Target="STORE_MODEL_IN_DB" Default="" Mode="" Description="backends live in the repo, not the UI" Type="Variable" Display="always" Required="true" Mask="false">False</Config>
+  <Config Name="LITELLM_TELEMETRY" Target="LITELLM_TELEMETRY" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">False</Config>
+</Container>

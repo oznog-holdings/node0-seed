@@ -1,0 +1,111 @@
+# The rung-1 monitoring floor (design › Monitoring): backup age per repository, restore-test
+# result, scrub result and scrub age, SMART growth, UPS state, disk free, one dead-man.
+# Rules are ages or growth ("alert on staleness, never on errors alone"), each deployed with
+# or after its producer (R1.80). Every rule has a unit test in floor.test.yml.
+groups:
+  - name: seed-floor
+    rules:
+      # --- dead-man: always fires; the phone gets it daily, the external check every minute
+      - alert: Watchdog
+        expr: vector(1)
+        labels: { severity: none }
+        annotations: { summary: "The monitoring is alive (dead-man; always firing)." }
+
+      # --- backups: age of the newest snapshot, read from the repository side. A dormant repository
+      #     (flow="dormant": its machine stopped writing on purpose, seed-metrics.sh DORMANT) matches no
+      #     clause here; its integrity and restore test still run weekly (RestoreTest* below).
+      - alert: BackupStale
+        expr: (time() - seed_backup_last_snapshot_timestamp_seconds{flow="site-data"}) > 36 * 3600
+             or (time() - seed_backup_last_snapshot_timestamp_seconds{flow="machines"}) > 6 * 3600
+        for: 10m
+        labels: { severity: critical }
+        annotations: { summary: "Backup {{ $labels.repo }}: newest snapshot is {{ $value | humanizeDuration }} old." }
+      - alert: BackupProducerMissing
+        expr: absent(seed_backup_last_snapshot_timestamp_seconds{repo="b2-infra"})
+        for: 30m
+        labels: { severity: critical }
+        annotations: { summary: "No backup-age metric for b2-infra: the producer or its state file is gone." }
+
+      # --- restore test: failed and skipped are separate alarms
+      - alert: RestoreTestFailed
+        expr: seed_restore_test_result{result="fail"} == 1
+        labels: { severity: critical }
+        annotations: { summary: "Weekly restore test failed for {{ $labels.repo }}." }
+      - alert: RestoreTestSkipped
+        expr: seed_restore_test_result{result="skipped"} == 1
+        labels: { severity: warning }
+        annotations: { summary: "Weekly restore test was skipped for {{ $labels.repo }}." }
+      - alert: RestoreTestStale
+        expr: (time() - seed_job_last_success_timestamp_seconds{task=~".+\\.restore"}) > 8 * 86400
+        labels: { severity: warning }
+        annotations: { summary: "No successful restore test for {{ $labels.task }} in over 8 days." }
+
+      # --- ZFS: the scrub result Unraid does not alert on, and an overdue scrub
+      - alert: ScrubFoundProblems
+        expr: seed_zpool_scrub_errors > 0 or seed_zpool_scrub_repaired_bytes > 0
+        labels: { severity: critical }
+        annotations: { summary: "Last scrub of {{ $labels.pool }} repaired data or found errors." }
+      - alert: ScrubOverdue
+        expr: (time() - seed_zpool_scrub_end_timestamp_seconds) > 35 * 86400
+        labels: { severity: warning }
+        annotations: { summary: "Pool {{ $labels.pool }}: last scrub ended {{ $value | humanizeDuration }} ago." }
+      - alert: PoolNotOnline
+        expr: seed_zpool_healthy == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "Pool {{ $labels.pool }} is not ONLINE." }
+
+      # --- drives: growth, never a count threshold; critical warning bits; heat (F-OPTANE-HEAT)
+      - alert: DriveErrorsGrowing
+        expr: increase(seed_smart_media_errors[24h]) > 0 or increase(seed_smart_error_log_entries[24h]) > 0
+        labels: { severity: critical }
+        annotations: { summary: "Drive {{ $labels.serial }} ({{ $labels.model }}): error counters grew in 24 h." }
+      - alert: DriveCriticalWarning
+        expr: seed_smart_critical_warning > 0
+        labels: { severity: critical }
+        annotations: { summary: "Drive {{ $labels.serial }} reports critical warning bits {{ $value }}." }
+      - alert: DriveHot
+        expr: seed_smart_temperature_celsius > 70
+        for: 15m
+        labels: { severity: warning }
+        annotations: { summary: "Drive {{ $labels.serial }} at {{ $value }} °C for 15 minutes." }
+
+      # --- UPS: in rules/power.yml (a 10 s group; 20260928)
+
+      # --- disk free: the trend (delta), not the total
+      - alert: PoolFillingUp
+        expr: predict_linear(node_filesystem_avail_bytes{mountpoint="/mnt/data"}[6h], 14 * 86400) < 0
+        for: 1h
+        labels: { severity: warning }
+        annotations: { summary: "At the last 6 h rate, /mnt/data fills within 14 days." }
+
+      # --- the producers themselves (silence is not success)
+      - alert: MetricsProducerStale
+        expr: (time() - seed_metrics_last_run_timestamp_seconds) > 15 * 60
+        labels: { severity: critical }
+        annotations: { summary: "seed-metrics.sh has not run for {{ $value | humanizeDuration }}: the floor is blind." }
+      - alert: JobStale
+        expr: (time() - seed_job_last_success_timestamp_seconds{task=~"seed-dumps|rest-maint|mirror|device-config"}) > 26 * 3600
+             or (time() - seed_job_last_success_timestamp_seconds{task="weekly-verify"}) > 8 * 86400
+        labels: { severity: warning }
+        annotations: { summary: "Job {{ $labels.task }} last succeeded {{ $value | humanizeDuration }} ago." }
+      - alert: RouterConfigDrift
+        expr: seed_router_config_drift_lines != 0
+        labels: { severity: warning }
+        annotations: { summary: "The router's configuration differs from the repository ({{ $value }} lines; -1: no expected copy). The diff: infra seed-state/router-drift.diff; site/router/config-tool check." }
+      - alert: TargetDown
+        expr: up == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: "Scrape target {{ $labels.job }} ({{ $labels.instance }}) is down." }
+      - alert: ProbeFailing
+        expr: probe_success == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.job }} probe of {{ $labels.instance }} is failing." }
+
+      # --- the notifier logs its own failures
+      - alert: NotifierFailing
+        expr: increase(alertmanager_notifications_failed_total[15m]) > 0
+        labels: { severity: critical }
+        annotations: { summary: "Alertmanager failed to deliver notifications ({{ $labels.integration }}, {{ $labels.reason }})." }

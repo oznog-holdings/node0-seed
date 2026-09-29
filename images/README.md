@@ -1,0 +1,18 @@
+# Photographs
+
+Taken on the bench while the Seed was built, between 20260923 and 20260928. Resized for the web,
+all metadata removed (phone photographs carry the location), and serial labels blurred.
+
+| File | What it shows | Alt text | Where it is used |
+|---|---|---|---|
+| `seed-bench-20260928.jpg` | The whole Seed on 20260928, rungs 1 to 4: the UPS, the infra box, the two mini PCs on the 10G switch, the router, the core Pi with its SSD, and the compute laptop. | A bench holding a tower UPS with a lit display, a small black NAS, two white mini PCs on a rack-width network switch, a blue router with three antennas, a bare Raspberry Pi with a portable SSD in front, and an open laptop. | The Seed's front page |
+| `seed-bench-wide-20260928.jpg` | The same bench on 20260928, straight on. | The same bench from the front: the UPS, the NAS, the two mini PCs on the switch, the blue router and the open laptop in one row, with the Pi and its SSD in front. | A banner |
+| `seed-bench-day-one-20260923.jpg` | Day one on the bench, 20260923, with the laptop the build started from. | An open black laptop in front of the UPS, the NAS, the two white mini PCs on the switch and the blue router, with a second laptop half closed beside them and loose cables on the shelves behind. | The build log |
+| `core-pi-and-ssd.jpg` | The core box on 20260928: a Raspberry Pi 4 with its portable USB SSD. | A bare Raspberry Pi 4 board with heatsinks, a network cable and a short USB cable to a small portable SSD lying beside it. | Rung 3; the SSD pitfall |
+| `agent-boxes-on-switch.jpg` | The agent box and the spare on 20260928, two N100 mini PCs, on the 8-port 10GBASE-T switch; the agent box's own USB stick is its keyed installer. | Two white mini PCs with round top vents sitting on an 8-port 10G switch, USB sticks in their front ports, and a network cable in every switch port. | Rung 2 |
+| `router.jpg` | The OpenWrt One on 20260928, the household router from rung 0; rung 5 makes it the edge of the site. | A blue metal router with three black antennas, between a mini PC and a laptop. | Rung 5 |
+| `infra-power-button-over-usb.jpg` | The back of the infra box on 20260928: the power button sits above the USB ports, where the Unraid boot stick lives. | A finger resting on the top panel of a black NAS next to its round power button; directly below, on the back panel, two USB plugs are in the ports. | Rung 1; the power-button pitfall |
+| `infra-inside-memory-and-drives.jpg` | Inside the infra box on 20260928: the 48 GB memory module, three NVMe drives under their heatsinks, and one empty NVMe slot. | The circuit board of the NAS from above: one laptop-size memory module on the left, three drives under black finned heatsinks on the right, and an empty slot above them. | Rung 1, memory and storage |
+| `infra-inside-empty-slots.jpg` | The other side of the board, 20260928: four more empty NVMe slots. With the empty slot on the first side, the box has room to grow from three drives to eight. | The other side of the NAS board: a large black heatsink on the left and four empty drive slots on the right. | Rung 1, growing the pool |
+| `recovery-sticks-in-safe.jpg` | The two recovery-pack sticks in a fireproof safe, 20260928. | Two small black USB sticks in an open blue case on the floor of a fireproof safe. | The recovery pack |
+| `ntfy-alerts-browser.png` | Alerts from the site in ntfy's web page, 20260928: each one says what failed and what it may mean. | A screenshot of the ntfy web page with three alerts: two "seed watcher: FAILING" and one "Power: UPS state unreadable", each with the checks that failed. | Rung 3, alerts |

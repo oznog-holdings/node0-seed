@@ -1,0 +1,14 @@
+#!/bin/sh
+# seed: read-only export of the router's configuration for infra's device-config job (design ›
+# Inventory: "pull every management device's config to the repo on a schedule"; R1.66). Run
+# only as the forced command of infra's device-config key (/etc/dropbear/authorized_keys).
+# Secrets are redacted HERE, before anything leaves the router. Installed as
+# /usr/libexec/seed-config-export and kept across upgrades by /etc/sysupgrade.conf.
+echo "### /etc/openwrt_release"
+cat /etc/openwrt_release
+echo "### uci export (secret options redacted on the router)"
+uci export | sed -E "s/^([[:space:]]*(option|list) (key|password|psk|sae_password|auth_secret|acct_secret|priv_key|private_key|preshared_key|secret|pass|passwd))[[:space:]].*$/\1 '<redacted>'/"
+echo "### packages installed by the user (opkg)"
+opkg list-installed 2>/dev/null | awk '{print $1, $3}' | sort
+echo "### ssh keys allowed in (type and comment only)"
+awk '{print $(NF-2) == "" ? $1 : $0}' /etc/dropbear/authorized_keys | sed -E 's/AAAA[A-Za-z0-9+\/=]+/<key>/'

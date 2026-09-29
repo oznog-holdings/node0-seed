@@ -1,0 +1,96 @@
+# Caddy on infra: the site's HTTPS front door (design › Services).
+# One wildcard certificate for the subdomain by DNS-01 (DNSimple). The token and account
+# come from /mnt/data/system/secrets/caddy.env (0600) via --env-file; never in this file.
+{
+	default_bind 192.168.1.10
+	# Unraid's web UI holds :80 on this address. Nothing here needs HTTP (DNS-01 only).
+	http_port 8080
+	auto_https disable_redirects
+	acme_ca {$ACME_CA}
+	admin localhost:2019
+}
+
+*.seed.example.com {
+	tls {
+		dns dnsimple {
+			account_id {$DNSIMPLE_ACCOUNT_ID}
+			api_access_token {$DNSIMPLE_API_ACCESS_TOKEN}
+		}
+		# check the TXT record at public resolvers, not the site's own DNS (Technitium is authoritative for the zone)
+		resolvers 1.1.1.1 9.9.9.9
+		# short TTL on the challenge record: a cached TXT from an earlier run (staging) blocked
+		# the production order for the old record's full TTL (3600 s at DNSimple; finding F-ACMETTL)
+		dns_ttl 60s
+	}
+
+	# the web front door's health URL (index › Rung 2's watcher; finding F-REMOTEWATCH)
+	@infra host infra.seed.example.com
+	handle @infra {
+		respond /healthz "ok" 200
+		# Syncthing's GUI (R1.41) under infra's own name, so no new name reaches the laptop's hosts
+		# block (F-LAPTOP-NAMES). Its own login; Host rewritten for Syncthing's host check.
+		redir /sync /sync/ 308
+		handle_path /sync/* {
+			reverse_proxy 127.0.0.1:8384 {
+				header_up Host 127.0.0.1:8384
+			}
+		}
+		respond 404
+	}
+
+	@git host git.seed.example.com
+	handle @git {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	@gw host gw.seed.example.com
+	handle @gw {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	@netbox host netbox.seed.example.com
+	handle @netbox {
+		reverse_proxy 127.0.0.1:8082
+	}
+
+	@rest host rest.seed.example.com
+	handle @rest {
+		# the metrics are for the monitoring on infra only, not the LAN
+		@metrics path /metrics
+		respond @metrics 404
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	@backrest host backrest.seed.example.com
+	handle @backrest {
+		reverse_proxy 127.0.0.1:9898
+	}
+
+	# the monitoring UIs, behind basic auth (hash from caddy-auth.env)
+	@prom host prom.seed.example.com
+	handle @prom {
+		basic_auth {
+			admin {$MONITORING_UI_HASH}
+		}
+		reverse_proxy 127.0.0.1:9090
+	}
+
+	@alerts host alerts.seed.example.com
+	handle @alerts {
+		basic_auth {
+			admin {$MONITORING_UI_HASH}
+		}
+		reverse_proxy 127.0.0.1:9093
+	}
+
+	@vault host vault.seed.example.com
+	handle @vault {
+		reverse_proxy 127.0.0.1:8081 {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	handle {
+		respond "no such service" 404
+	}
+}

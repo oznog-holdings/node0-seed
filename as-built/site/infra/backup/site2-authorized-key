@@ -1,0 +1,4 @@
+# infra: root authorized_keys line for site2's syncoid (rung 5 › E). The key was made on site2
+# (site2-syncoid-key.service; the private half never leaves it); this line only lets it run zfs-send-guard.sh,
+# only from site2's tailnet address. Installed in /root/.ssh/authorized_keys (/boot/config/ssh/root, the flash).
+restrict,from="100.64.0.12",command="/mnt/data/system/seed-bin/zfs-send-guard.sh" ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY

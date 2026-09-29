@@ -1,0 +1,38 @@
+// The seed's tailnet access policy: a PROPOSAL (rung 5 › E; the orchestrator's decision 7, 20260929).
+// Not applied: the admin console is the owner's (diary 20260929, N44). Written without sight of the
+// current policy; it assumes Tailscale's default (every device may reach every device). If the current
+// policy has more (ssh rules, autoApprovers, groups), keep those parts and merge only what's below.
+//
+// What it does:
+//   - site2 may reach only infra's ssh (its hourly pull; infra's key there runs only zfs-send-guard.sh);
+//   - only the agent box and infra may reach site2's ssh; infra's Prometheus may also reach site2's
+//     node_exporter (:9100, the replica's freshness metric, ReplicaStale), which site2's firewall
+//     already limits to infra;
+//   - everything else as it is: the owner's own devices reach each other and the subnet route
+//     192.168.1.0/24 (served by the agent box, infra on standby) as before.
+// How: site2 gets the tag `tag:site2` (admin console › Machines › site2 › Edit ACL tags), so it's no
+// longer one of the members' own devices; the member rule below then doesn't reach it or come from it.
+// Before saving: the editor validates on save; then check from the agent box:
+//   - `tailscale ping site2` and `ssh admin@100.64.0.12 true` still work (agent → site2:22);
+//   - from site2, `nc -zw3 100.64.0.11 22` fails (site2 → agent: refused), and
+//     `ssh root@100.64.0.10 exit` still works (site2 → infra:22, through the guard);
+//   - from infra, `curl -s 100.64.0.12:9100/metrics | head -1` answers (Prometheus → site2:9100).
+{
+  "tagOwners": {
+    "tag:site2": ["autogroup:admin"],
+  },
+  "hosts": {
+    "agent": "100.64.0.11",
+    "infra": "100.64.0.10",
+    "seed-lan": "192.168.1.0/24",
+  },
+  "acls": [
+    // everything as it is among the owner's own (untagged) devices, and to the site's LAN route
+    {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:member:*", "seed-lan:*"]},
+    // site2 → infra's ssh, and nothing else
+    {"action": "accept", "src": ["tag:site2"], "dst": ["infra:22"]},
+    // only the agent box and infra → site2's ssh; infra → site2's node_exporter
+    {"action": "accept", "src": ["agent", "infra"], "dst": ["tag:site2:22"]},
+    {"action": "accept", "src": ["infra"], "dst": ["tag:site2:9100"]},
+  ],
+}

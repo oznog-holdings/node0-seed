@@ -1,0 +1,6 @@
+# DNS servers that must answer the site's names (module dns_site asks for infra.seed.example.com).
+# From rung 5 › F (20260929): Technitium only; AdGuard on core (.12) and infra (.10) retired.
+# ns1 is core's second address. ns2 (192.168.1.16, a container on Docker's br0, macvlan) can't be
+# reached from infra itself, so the watcher on the agent box probes it instead.
+- targets: ["192.168.1.15"]
+  labels: { server: ns1, host: core }

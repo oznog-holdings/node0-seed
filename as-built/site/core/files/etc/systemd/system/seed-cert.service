@@ -1,0 +1,11 @@
+# ntfy's certificate for ntfy.<zone>, from Let's Encrypt by DNS-01 at DNSimple (the same
+# method as infra's Caddy; no port forwards). core gets its own so an alert never depends on
+# infra, even for its certificate.
+[Unit]
+Description=Obtain or renew ntfy's certificate (acme.sh, DNS-01)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-cert

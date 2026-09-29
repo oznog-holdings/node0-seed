@@ -1,0 +1,8 @@
+# Upstream artifacts for core (Raspberry Pi 4, arm64), each checked by sha256 before install.
+# name  version  sha256  url
+ntfy 2.28.0 99b840da412bf0be75e20049b74ce488acab4ffb134fd18f02d8d0622548c9fa https://github.com/binwiederhier/ntfy/releases/download/v2.28.0/ntfy_2.28.0_linux_arm64.deb
+# Technitium DNS (rung 5, ns1) and the ASP.NET Core runtime it runs on (.NET 10, its target at 15.5.1).
+# aspnetcore: Microsoft's sha512 (releases.json, 10.0.12) checked on the download 20260929, then its sha256 here.
+aspnetcore 10.0.12 bc4a2513b996a8e1c1eb05a68bb40df93362669e2a64832f9e7ff429adbe6115 https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/10.0.12/aspnetcore-runtime-10.0.12-linux-arm64.tar.gz
+technitium 15.5.1 a8013547b47719bb5868f30c6748539f56b0e343579b3df3da26af8f9bad067f https://download.technitium.com/dns/archive/15.5.1/DnsServerPortable.tar.gz
+restic 0.19.1 a5f64aaab53d51e311fa3829124c5b703f2d14cf187d8640b6be3b2b49376465 https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_arm64.bz2

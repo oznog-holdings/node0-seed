@@ -1,0 +1,15 @@
+Copyright (c) 2026 Oznog Holdings LLC
+
+The writing, diagrams, photographs and data in this repository (everything
+outside templates/, as-built/ and values.example.yaml) are licensed under the Creative Commons
+Attribution 4.0 International License (CC BY 4.0).
+
+You may share and adapt this material for any purpose, including commercially,
+provided you give appropriate credit ("Oznog Holdings LLC, oznog.com/node0"),
+link to the licence, and indicate if changes were made.
+
+Full text: https://creativecommons.org/licenses/by/4.0/legalcode
+Summary:   https://creativecommons.org/licenses/by/4.0/
+
+The tools under tools/ are licensed separately, under the MIT License; see
+LICENSE-tools.

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Drift check (R1.27/R1.28, R5.09): the site's DNS against dns/rewrites.yaml. From rung 5 › F (20260929) the
+# site's DNS is Technitium only (AdGuard retired; site/dns/adguard-archive): its configuration against the
+# repository (dns/technitium/push check: settings, zones, records, the router's user), and what ns1 (core,
+# 192.168.1.15) and ns2 (infra's container, 192.168.1.16) answer, over DNS, for every name in the list, plus
+# the filtering (a known ad domain -> 0.0.0.0). Exit 1 on any difference.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PY='python3.withPackages(p: [p.pyyaml])'
+want=$(nix-shell -p "$PY" --run "python3 -c '
+import yaml; n=yaml.safe_load(open(\"dns/rewrites.yaml\")); z=n[\"zone\"]; h=n[\"hosts\"]
+rows=[(f\"{k}.{z}\",v) for k,v in h.items()]+[(f\"{k}.{z}\",h[v]) for k,v in (n.get(\"services\") or {}).items()]
+print(\"\n\".join(sorted(f\"{d} {a}\" for d,a in rows)))'" 2>/dev/null)
+rc=0
+if out=$(dns/technitium/push check 2>&1); then echo "dns technitium: configuration = repository ($(tail -1 <<<"$out"))"
+else echo "dns technitium: DRIFT"; grep -E 'DIFFERS|Error|error' <<<"$out"; rc=1; fi
+DIG=$(nix-shell -p dnsutils --run 'command -v dig' 2>/dev/null)
+for s in ns1:192.168.1.15 ns2:192.168.1.16; do
+  have=$(while read -r d a; do printf '%s %s\n' "$d" "$($DIG +short +time=3 +tries=2 @${s#*:} $d A | grep -v '^;' | sort | tr '\n' ' ' | sed 's/ $//')"; done <<<"$want")
+  if diff <(echo "$want") <(echo "$have") >/dev/null; then echo "dns ${s%%:*}: Technitium answers exactly rewrites.yaml ($(echo "$want" | wc -l) names, over DNS)"
+  else echo "dns ${s%%:*}: DRIFT (< repo, > answers)"; diff <(echo "$want") <(echo "$have") || true; rc=1; fi
+  f=$($DIG +short +time=3 +tries=2 @${s#*:} doubleclick.net A | grep -v '^;')
+  [[ $f == 0.0.0.0 ]] && echo "dns ${s%%:*}: filtering on (doubleclick.net -> 0.0.0.0)" || { echo "dns ${s%%:*}: filtering OFF (doubleclick.net -> '$f')"; rc=1; }
+done
+exit $rc

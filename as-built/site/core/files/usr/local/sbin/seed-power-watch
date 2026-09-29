@@ -1,0 +1,66 @@
+#!/bin/bash
+# core reads the UPS state from infra (Unraid's apcupsd network server, :3551) every 15 seconds,
+# publishes it as metrics and sends one line per change (site/runbooks/power-protocol.md).
+# core NEVER shuts itself down on a power event: nothing here halts, and the apcupsd daemon
+# is masked on core (index › Rung 3: "a power event must not be able to kill it").
+# Any status but mains (ONLINE, alone or with TRIM/BOOST) is a power event, reported with apcupsd's own
+# status text: ONBATT, LOWBATT, SHUTTING DOWN, COMMLOST, OVERLOAD, ... A change from one event status
+# to another is reported too. (Until 20260927 only ONBATT counted: the UPS test's read landed on
+# "SHUTTING DOWN" and was taken for mains, so no alert went out; F-UPS-WATCH.)
+# Dry run: SEED_POWER_TEST='ONBATT'|'SHUTTING DOWN'|ONLINE|UNREACHABLE|... [SEED_POWER_TEST_CHARGE=..] [SEED_POWER_TEST_TIMELEFT=..]
+# prints and sends what it would, marked DRY-RUN, and keeps its state apart from the real one.
+set -uo pipefail
+tf=/var/lib/prometheus/node-exporter; now=$(date +%s)
+if [ -n "${SEED_POWER_TEST:-}" ]; then
+  dry="DRY-RUN: "; st=/run/seed-power-dry
+  [ "$SEED_POWER_TEST" = UNREACHABLE ] && out="" || out=$(printf 'STATUS   : %s\nBCHARGE  : %s Percent\nTIMELEFT : %s Minutes\nMBATTCHG : 25 Percent\nMINTIMEL : 10 Minutes\n' \
+    "$SEED_POWER_TEST" "${SEED_POWER_TEST_CHARGE:-80.0}" "${SEED_POWER_TEST_TIMELEFT:-60.0}")
+else
+  dry=""; st=/var/lib/seed-power
+  out=$(timeout 10 /sbin/apcaccess status 192.168.1.10:3551 2>/dev/null)
+fi
+mkdir -p "$st"
+field() { sed -n "s/^$1 *: *\([^ ]*\).*/\1/p" <<<"$out" | head -1; }
+if [ -n "$out" ]; then status=$(sed -n 's/^STATUS *: *//p' <<<"$out" | sed 's/ *$//'); charge=$(field BCHARGE); left=$(field TIMELEFT); minchg=$(field MBATTCHG); mintime=$(field MINTIMEL); fi
+# the UPS as core sees it: ONLINE (mains), UNREACHABLE (12 misses in a row = 3 minutes at one read
+# every 15 s, so an apcupsd restart on infra is quiet), or apcupsd's own status text for anything else
+if [ -z "$out" ]; then
+  misses=$(( $(cat "$st/misses" 2>/dev/null || echo 0) + 1 )); echo $misses > "$st/misses"
+  if [ -n "$dry" ] || [ $misses -ge 12 ]; then state=UNREACHABLE; else state=$(cat "$st/state" 2>/dev/null || echo ONLINE); fi
+else
+  echo 0 > "$st/misses"
+  rest=$(awk '{for (i = 1; i <= NF; i++) if ($i != "ONLINE" && $i != "TRIM" && $i != "BOOST") printf "%s ", $i}' <<<"$status")
+  if [[ " $status " == *" ONLINE "* && -z $rest ]]; then state=ONLINE; else state=${status:-UNKNOWN}; fi
+fi
+event() { [ "$1" != ONLINE ] && [ "$1" != UNREACHABLE ]; }
+prev=$(cat "$st/state" 2>/dev/null || echo ONLINE)
+if [ "$state" != "$prev" ]; then
+  lim="infra shuts itself down at ${minchg:-?} % charge or ${mintime:-?} min left (apcupsd); core and the agent box ride on and do not shut down"
+  if event "$state"; then
+    t="Power: $state"; p=5; m="UPS status '$state' (was $prev): charge ${charge:-?} %, about ${left:-?} min left. $lim."
+  elif [ "$state" = ONLINE ] && event "$prev"; then
+    t="Power: mains back"; p=4; m="The UPS is back on mains (was '$prev'; charge ${charge:-?} %). If infra shut down, it stays off until its plug is cycled or its button pressed (site/runbooks/power-protocol.md)."
+  elif [ "$state" = UNREACHABLE ]; then
+    t="Power: UPS state unreadable"; p=4; m="core cannot read the UPS from infra (:3551) for 3 minutes (last status '$prev'). Either infra is down (shut down by apcupsd after a power event, or otherwise), or the power is off: on this bench the switch is not on the UPS, so core hears nothing during a cut."
+  else
+    t="Power: UPS readable again"; p=3; m="core reads the UPS from infra again: '$state', charge ${charge:-?} %."
+  fi
+  logger -t seed-power "${dry}$prev -> $state: $m"
+  echo "${dry}$t: $m"
+  /usr/local/sbin/seed-notify "${dry}$t" "$p" "${dry}$m" || true
+  echo "$state" > "$st/state"
+fi
+[ -n "$dry" ] && exit 0
+mkdir -p $tf
+{ echo "# HELP seed_power_ups_readable 1 if core read the UPS state from infra's apcupsd on the last run."
+  echo "# TYPE seed_power_ups_readable gauge"
+  echo "seed_power_ups_readable $([ -n "$out" ] && echo 1 || echo 0)"
+  echo "# HELP seed_power_on_battery 1 while the UPS reports anything but mains (ONBATT, SHUTTING DOWN, LOWBATT, ...), as core last read it."
+  echo "# TYPE seed_power_on_battery gauge"
+  echo "seed_power_on_battery $(event "$state" && echo 1 || echo 0)"
+  [ -n "${charge:-}" ] && { echo "# TYPE seed_power_battery_charge_percent gauge"; echo "seed_power_battery_charge_percent $charge"; }
+  [ -n "${left:-}" ] && { echo "# TYPE seed_power_timeleft_minutes gauge"; echo "seed_power_timeleft_minutes $left"; }
+  echo "# HELP seed_power_watch_last_run_timestamp_seconds Last run of core's power watch."
+  echo "# TYPE seed_power_watch_last_run_timestamp_seconds gauge"
+  echo "seed_power_watch_last_run_timestamp_seconds $now"
+} > $tf/seed-power.prom.tmp && mv $tf/seed-power.prom.tmp $tf/seed-power.prom

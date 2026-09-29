@@ -1,0 +1,127 @@
+#!/bin/bash
+# Producer for the rung-1 monitoring floor (design › Monitoring): writes Prometheus textfile
+# metrics for node_exporter's textfile collector. Runs every 5 minutes (User Scripts).
+# Only ages, counts, states and completion times: no financial or personal data (R1.87).
+# Written to a temp file and renamed, so node_exporter never reads half a file.
+set -uo pipefail
+umask 022
+OUT=/mnt/data/system/metrics; mkdir -p $OUT; tmp=$(mktemp $OUT/.seed.prom.XXXXXX)
+state=/mnt/data/system/seed-state
+{
+# 1. job completion timestamps (R1.79): every job writes <name>.last on success only
+echo '# HELP seed_job_last_success_timestamp_seconds Last successful completion of a site job.'
+echo '# TYPE seed_job_last_success_timestamp_seconds gauge'
+for f in $state/*.last; do
+  n=$(basename "$f" .last); v=$(cat "$f" 2>/dev/null); [[ $v =~ ^[0-9]+$ ]] || continue
+  echo "seed_job_last_success_timestamp_seconds{task=\"$n\"} $v"
+done
+
+# 2. backup age per repository, read from the repositories' side
+echo '# HELP seed_backup_last_snapshot_timestamp_seconds Newest snapshot written to the repository.'
+echo '# TYPE seed_backup_last_snapshot_timestamp_seconds gauge'
+v=$(cat $state/backrest-site-data.last 2>/dev/null) && echo "seed_backup_last_snapshot_timestamp_seconds{repo=\"b2-infra\",flow=\"site-data\"} $v"
+for d in /mnt/data/backups/rest/*/snapshots; do
+  m=$(basename "$(dirname "$d")"); v=$(find "$d" -type f -printf '%T@\n' 2>/dev/null | sort -n | tail -1 | cut -d. -f1)
+  [ -n "$v" ] && echo "seed_backup_last_snapshot_timestamp_seconds{repo=\"rest-$m\",flow=\"machines\"} $v"
+done
+
+# 3. restore test and verify sweep (weekly-verify.sh): result as a state, skipped is its own value
+echo '# HELP seed_restore_test_result Last weekly restore test per repository (1 for the current result).'
+echo '# TYPE seed_restore_test_result gauge'
+for f in $state/*.restore.result; do
+  r=$(basename "$f" .restore.result); res=$(cat "$f")
+  for s in ok fail skipped; do echo "seed_restore_test_result{repo=\"$r\",result=\"$s\"} $([ "$res" = $s ] && echo 1 || echo 0)"; done
+done
+
+# 4. ZFS: pool state, last scrub result and end time
+echo '# HELP seed_zpool_healthy 1 if the pool is ONLINE.'
+echo '# TYPE seed_zpool_healthy gauge'
+echo '# HELP seed_zpool_scrub_errors Errors reported by the last completed scrub.'
+echo '# TYPE seed_zpool_scrub_errors gauge'
+echo '# HELP seed_zpool_scrub_repaired_bytes Bytes repaired by the last completed scrub.'
+echo '# TYPE seed_zpool_scrub_repaired_bytes gauge'
+echo '# HELP seed_zpool_scrub_end_timestamp_seconds End of the last completed scrub.'
+echo '# TYPE seed_zpool_scrub_end_timestamp_seconds gauge'
+for p in $(zpool list -H -o name); do
+  h=$(zpool list -H -o health "$p"); echo "seed_zpool_healthy{pool=\"$p\"} $([ "$h" = ONLINE ] && echo 1 || echo 0)"
+  line=$(zpool status "$p" | grep -E '^\s*scan: scrub repaired')
+  if [[ $line =~ repaired\ ([0-9.]+)([BKMGT]?)\ in\ .*\ with\ ([0-9]+)\ errors\ on\ (.*)$ ]]; then
+    num=${BASH_REMATCH[1]}; unit=${BASH_REMATCH[2]}; err=${BASH_REMATCH[3]}; when=${BASH_REMATCH[4]}
+    case $unit in K) mul=1024;; M) mul=1048576;; G) mul=1073741824;; T) mul=1099511627776;; *) mul=1;; esac
+    echo "seed_zpool_scrub_repaired_bytes{pool=\"$p\"} $(awk "BEGIN{printf \"%d\", $num*$mul}")"
+    echo "seed_zpool_scrub_errors{pool=\"$p\"} $err"
+    echo "seed_zpool_scrub_end_timestamp_seconds{pool=\"$p\"} $(date -d "$when" +%s)"
+  fi
+done
+
+# 5. SMART, per serial (the counts belong on a dashboard with the serial; the rule is on growth)
+echo '# HELP seed_smart_media_errors NVMe media and data integrity errors (count; alert on growth).'
+echo '# TYPE seed_smart_media_errors counter'
+echo '# HELP seed_smart_error_log_entries NVMe error information log entries (count; alert on growth).'
+echo '# TYPE seed_smart_error_log_entries counter'
+echo '# HELP seed_smart_critical_warning NVMe critical warning bits (0 is healthy).'
+echo '# TYPE seed_smart_critical_warning gauge'
+echo '# HELP seed_smart_percentage_used NVMe endurance used, percent.'
+echo '# TYPE seed_smart_percentage_used gauge'
+echo '# HELP seed_smart_temperature_celsius Drive temperature.'
+echo '# TYPE seed_smart_temperature_celsius gauge'
+for dev in /dev/nvme[0-9]n1; do
+  j=$(smartctl -j -a "$dev" 2>/dev/null) || true
+  s=$(jq -r '.serial_number // empty' <<<"$j"); [ -n "$s" ] || continue
+  m=$(jq -r '.model_name // "?"' <<<"$j" | tr -d '"'); l="serial=\"$s\",model=\"$m\""
+  jq -r --arg l "$l" '.nvme_smart_health_information_log // {} |
+    "seed_smart_media_errors{\($l)} \(.media_errors // 0)",
+    "seed_smart_error_log_entries{\($l)} \(.num_err_log_entries // 0)",
+    "seed_smart_critical_warning{\($l)} \(.critical_warning // 0)",
+    "seed_smart_percentage_used{\($l)} \(.percentage_used // 0)",
+    "seed_smart_temperature_celsius{\($l)} \(.temperature // 0)"' <<<"$j"
+done
+
+# 6. UPS (apcupsd on infra)
+echo '# HELP seed_ups_on_battery 1 while the UPS runs on battery.'
+echo '# TYPE seed_ups_on_battery gauge'
+echo '# HELP seed_ups_battery_charge_percent Battery charge.'
+echo '# TYPE seed_ups_battery_charge_percent gauge'
+echo '# HELP seed_ups_timeleft_minutes Estimated runtime left.'
+echo '# TYPE seed_ups_timeleft_minutes gauge'
+echo '# HELP seed_ups_up 1 if apcupsd answered.'
+echo '# TYPE seed_ups_up gauge'
+if a=$(apcaccess 2>/dev/null) && [ -n "$a" ]; then
+  st=$(awk -F': ' '/^STATUS/{print $2}' <<<"$a")
+  echo "seed_ups_up 1"
+  echo "seed_ups_on_battery $([[ $st == *ONBATT* ]] && echo 1 || echo 0)"
+  echo "seed_ups_battery_charge_percent $(awk -F': ' '/^BCHARGE/{print $2+0}' <<<"$a")"
+  echo "seed_ups_timeleft_minutes $(awk -F': ' '/^TIMELEFT/{print $2+0}' <<<"$a")"
+else echo "seed_ups_up 0"; fi
+
+# 8. the model gateway and the rung-4 backend (R4.11): a real request through the gateway on
+#    infra's loopback with the monitoring-probe key (secrets/monitoring-probe.env, from the vault),
+#    first to the gateway's own self-test, then to the compute Mac's model. A success writes its time to
+#    a state file, so the age survives failed runs. Counts and times only; no content kept.
+echo '# HELP seed_gateway_selftest_success 1 if the gateway answered its self-test model.'
+echo '# TYPE seed_gateway_selftest_success gauge'
+echo '# HELP seed_inference_probe_success 1 if a completion from glm-4.7-flash-local came back through the gateway.'
+echo '# TYPE seed_inference_probe_success gauge'
+echo '# HELP seed_inference_probe_duration_seconds Time the probe completion took.'
+echo '# TYPE seed_inference_probe_duration_seconds gauge'
+echo '# HELP seed_inference_last_success_timestamp_seconds When a probe completion last succeeded.'
+echo '# TYPE seed_inference_last_success_timestamp_seconds gauge'
+GWK=$(sed -n 's/^GATEWAY_PROBE_KEY=//p' /mnt/data/system/secrets/monitoring-probe.env 2>/dev/null)
+gw() { curl -s -m "$1" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GWK" -H 'Content-Type: application/json' \
+  --data-binary @- http://127.0.0.1:4000/v1/chat/completions; }
+st=$(printf '{"model":"seed-selftest","messages":[{"role":"user","content":"probe"}]}' | gw 15)
+echo "seed_gateway_selftest_success $([ "$st" = 200 ] && echo 1 || echo 0)"
+mkdir -p $OUT/.state; t0=$(date +%s%N)
+code=$(printf '{"model":"glm-4.7-flash-local","messages":[{"role":"user","content":"Reply with the word ok."}],"max_tokens":32,"temperature":0}' | gw 120)
+dur=$(awk -v a="$t0" -v b="$(date +%s%N)" 'BEGIN {printf "%.3f", (b - a) / 1e9}')
+if [ "$code" = 200 ]; then echo "seed_inference_probe_success 1"; date +%s > $OUT/.state/inference.last
+else echo "seed_inference_probe_success 0"; fi
+echo "seed_inference_probe_duration_seconds $dur"
+[ -s $OUT/.state/inference.last ] && echo "seed_inference_last_success_timestamp_seconds $(cat $OUT/.state/inference.last)"
+unset GWK
+
+# 7. this producer's own heartbeat
+echo '# HELP seed_metrics_last_run_timestamp_seconds When seed-metrics.sh last completed.'
+echo '# TYPE seed_metrics_last_run_timestamp_seconds gauge'
+echo "seed_metrics_last_run_timestamp_seconds $(date +%s)"
+} > "$tmp" && chmod 644 "$tmp" && mv "$tmp" $OUT/seed.prom

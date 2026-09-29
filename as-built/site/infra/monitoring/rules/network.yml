@@ -1,0 +1,18 @@
+# Link flapping on a box's wired NIC (F-INFRA-LINK-FLAP, 20260928: infra's eth0 went up and down 125
+# times in 17 minutes after a power-on, and the site never reached it).
+# What this catches: a link that flaps but works now and then, so Prometheus on infra can read the
+# counter and Alertmanager can deliver between drops (or a flapping agent box or core, read over a
+# working infra link). What it can't: a link that never settles. Then nothing leaves the box, and
+# the alert fires into a dead link. That case is caught elsewhere:
+#  - core's seed-watcher sends "infra unreachable" from core's side of the switch (to core's ntfy);
+#  - the external dead-man (Healthchecks.io, R1.44) sees the Watchdog pings stop within about 6
+#    minutes and alerts by its own channels.
+# Wired NICs only: container veths, bridges and bonds change carrier as a matter of course (a bond
+# repeats its slave's changes).
+groups:
+  - name: seed-network
+    rules:
+      - alert: LinkFlapping
+        expr: increase(node_network_carrier_changes_total{device=~"eth[0-9]+|en[a-z0-9]+"}[10m]) >= 4
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.device }} on {{ $labels.instance }} changed link state {{ $value | printf \"%.0f\" }} times in 10 minutes: a cable, a port or the NIC (on infra 20260928 a power cycle cured it; F-INFRA-LINK-FLAP)." }

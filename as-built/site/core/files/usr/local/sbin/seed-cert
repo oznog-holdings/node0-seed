@@ -1,0 +1,24 @@
+#!/bin/bash
+# ntfy's certificate on core: acme.sh, DNS-01 at DNSimple through the hook
+# /var/lib/seed-cert/dnsapi/dns_seed_dnsimple.sh (zone fixed), from Let's Encrypt with no
+# contact address, as infra's Caddy registered (lego 4.9 in Debian insists on an email, so it
+# is not used). The token is in /etc/seed/acme.env (0600, from core's encrypted secrets). The
+# certificate is installed for ntfy only when it changed, and ntfy restarted then.
+set -euo pipefail
+set -a; . /etc/seed/acme.env; set +a
+H=/var/lib/seed-cert; D=ntfy.seed.example.com; mkdir -p -m 0700 $H
+A=(acme.sh --home $H --config-home $H --server "${ACME_SERVER:-letsencrypt}")
+if [ ! -s "$H/${D}_ecc/fullchain.cer" ]; then
+  # a fixed wait rather than acme.sh's public check: DNSimple's servers took longer than
+  # 20 s to agree on 20260924, and Let's Encrypt asked one that had not seen the record yet
+  "${A[@]}" --issue --dns dns_seed_dnsimple --dnssleep 120 -d $D --keylength ec-256
+else
+  rc=0; "${A[@]}" --renew -d $D --ecc || rc=$?
+  [ $rc = 0 ] || [ $rc = 2 ] || exit $rc      # 2: not due yet (renews 30 days before expiry)
+fi
+install -d -m 0750 -g ntfy /etc/ntfy/tls
+if ! cmp -s "$H/${D}_ecc/fullchain.cer" /etc/ntfy/tls/cert.pem || ! cmp -s "$H/${D}_ecc/$D.key" /etc/ntfy/tls/key.pem; then
+  install -m 0640 -g ntfy "$H/${D}_ecc/fullchain.cer" /etc/ntfy/tls/cert.pem
+  install -m 0640 -g ntfy "$H/${D}_ecc/$D.key" /etc/ntfy/tls/key.pem
+  echo "seed-cert: new certificate installed for ntfy"; systemctl try-restart ntfy
+fi

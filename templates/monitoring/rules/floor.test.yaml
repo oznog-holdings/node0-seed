@@ -1,0 +1,130 @@
+# Unit tests for floor.yml (promtool test rules): each rule fires on the condition it watches
+# for and stays quiet otherwise. Run by bin/deploy-monitoring before anything goes live.
+rule_files: [floor.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 5m
+    input_series:
+      # b2 snapshot at t=0 and never again; rest repo fresh; a restore fail and a skip.
+      # Sampled every 5 m: with sparser samples a series vanishes between them (5 m lookback)
+      # and a rule with for: never fires.
+      - series: 'seed_backup_last_snapshot_timestamp_seconds{repo="b2-infra",flow="site-data"}'
+        values: '0x600'
+      - series: 'seed_backup_last_snapshot_timestamp_seconds{repo="rest-agentvm",flow="machines"}'
+        values: '0+300x600'
+      - series: 'seed_restore_test_result{repo="b2-infra",result="fail"}'
+        values: '1x600'
+      - series: 'seed_restore_test_result{repo="rest-agentvm",result="skipped"}'
+        values: '1x600'
+      - series: 'seed_zpool_scrub_errors{pool="data"}'
+        values: '0x600'
+      - series: 'seed_zpool_scrub_repaired_bytes{pool="data"}'
+        values: '4096x600'
+      - series: 'seed_smart_media_errors{serial="S1",model="M"}'
+        values: '0x288 1x312'
+      - series: 'seed_smart_error_log_entries{serial="S1",model="M"}'
+        values: '0x600'
+      - series: 'seed_ups_on_battery'
+        values: '0x480 1x120'
+      - series: 'seed_ups_battery_charge_percent'
+        values: '100x480 90x120'
+      - series: 'seed_metrics_last_run_timestamp_seconds'
+        values: '0+300x600'
+    alert_rule_test:
+      - eval_time: 30h
+        alertname: BackupStale
+        exp_alerts: []
+      - eval_time: 38h
+        alertname: BackupStale
+        exp_alerts:
+          - exp_labels: { severity: critical, repo: b2-infra, flow: site-data }
+            exp_annotations: { summary: "Backup b2-infra: newest snapshot is 1d 14h 0m 0s old." }
+      - eval_time: 30h
+        alertname: RestoreTestFailed
+        exp_alerts:
+          - exp_labels: { severity: critical, repo: b2-infra, result: fail }
+            exp_annotations: { summary: "Weekly restore test failed for b2-infra." }
+      - eval_time: 30h
+        alertname: RestoreTestSkipped
+        exp_alerts:
+          - exp_labels: { severity: warning, repo: rest-agentvm, result: skipped }
+            exp_annotations: { summary: "Weekly restore test was skipped for rest-agentvm." }
+      - eval_time: 30h
+        alertname: ScrubFoundProblems
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: data }
+            exp_annotations: { summary: "Last scrub of data repaired data or found errors." }
+      - eval_time: 20h
+        alertname: DriveErrorsGrowing
+        exp_alerts: []
+      - eval_time: 30h
+        alertname: DriveErrorsGrowing
+        exp_alerts:
+          - exp_labels: { severity: critical, serial: S1, model: M }
+            exp_annotations: { summary: "Drive S1 (M): error counters grew in 24 h." }
+      - eval_time: 39h
+        alertname: UpsOnBattery
+        exp_alerts: []
+      - eval_time: 42h
+        alertname: UpsOnBattery
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations: { summary: "UPS on battery: 90% charge." }
+      - eval_time: 30h
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels: { severity: none }
+            exp_annotations: { summary: "The monitoring is alive (dead-man; always firing)." }
+      - eval_time: 30h
+        alertname: MetricsProducerStale
+        exp_alerts: []
+  # producer stops: a metric frozen in the past
+  - interval: 1m
+    input_series:
+      - series: 'seed_metrics_last_run_timestamp_seconds'
+        values: '0x30'
+      - series: 'seed_job_last_success_timestamp_seconds{task="seed-dumps"}'
+        values: '0x30'
+      - series: 'seed_zpool_scrub_end_timestamp_seconds{pool="data"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: MetricsProducerStale
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: MetricsProducerStale
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations: { summary: "seed-metrics.sh has not run for 20m 0s: the floor is blind." }
+      - eval_time: 20m
+        alertname: JobStale
+        exp_alerts: []
+  # long horizon: a job older than 26 h and a scrub older than 35 days
+  - interval: 1d
+    input_series:
+      - series: 'seed_job_last_success_timestamp_seconds{task="seed-dumps"}'
+        values: '0x40'
+      - series: 'seed_job_last_success_timestamp_seconds{task="mirror"}'
+        values: '0x40'
+      - series: 'seed_job_last_success_timestamp_seconds{task="device-config"}'
+        values: '0x40'
+      - series: 'seed_zpool_scrub_end_timestamp_seconds{pool="data"}'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 2d
+        alertname: JobStale
+        exp_alerts:
+          - exp_labels: { severity: warning, task: seed-dumps }
+            exp_annotations: { summary: "Job seed-dumps last succeeded 2d 0h 0m 0s ago." }
+          - exp_labels: { severity: warning, task: mirror }
+            exp_annotations: { summary: "Job mirror last succeeded 2d 0h 0m 0s ago." }
+          - exp_labels: { severity: warning, task: device-config }
+            exp_annotations: { summary: "Job device-config last succeeded 2d 0h 0m 0s ago." }
+      - eval_time: 30d
+        alertname: ScrubOverdue
+        exp_alerts: []
+      - eval_time: 36d
+        alertname: ScrubOverdue
+        exp_alerts:
+          - exp_labels: { severity: warning, pool: data }
+            exp_annotations: { summary: "Pool data: last scrub ended 36d 0h 0m 0s ago." }

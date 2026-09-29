@@ -1,0 +1,23 @@
+# The break-glass set (D.01d, 20260928): the only items the hosted Bitwarden org "Seed" keeps. Every
+# item lives in the site vault (Vaultwarden, the source); these are also in the hosted org, because a
+# recovery must not need the site vault, which runs on infra (F-BREAKGLASS). One name per line.
+# name <TAB> why
+recovery pack passphrase	decrypts the recovery pack; useless if it lives only in the site vault
+vaultwarden seed-builder	the builder's Vaultwarden master password: the site vault's own unlock (hosted only, never inside it)
+vaultwarden admin token	Vaultwarden's admin page, to bring the site vault back after a restore
+infra root user	infra's console and Unraid UI: the box a recovery rebuilds
+router root	the household router, when nothing else works (LAN, DHCP, DNS option)
+sops master age key	opens the repo's secrets (core's secrets.age, the agent box's agent.yaml) on any machine
+restic seed infra	flow 1's repository password: restores infra, Vaultwarden's own dump included
+restic seed agent	flow 2: the agent box's /work (rest-server repository agent)
+restic seed compute	flow 2: the laptop (rest-server repository compute)
+restic seed agentvm	flow 2: agentvm's retired /work, kept dormant for its snapshots
+restic seed laptop	the rung-0 record in the bucket (the owner: its password stays in the vaults)
+rest-server agent	the rest-server login for repository agent (to restore the agent box's /work)
+rest-server compute	the rest-server login for repository compute
+rest-server agentvm	the rest-server login for repository agentvm
+b2 seed-restore-reader	the read-only B2 key: restores from the bucket
+b2 seed-writer	the B2 writer: resumes flow 1 after a rebuild
+b2 seed-machines-writer	the mirror bucket's writer: resumes the rest-server mirror after a rebuild
+dnsimple example.com	the domain's DNS: certificates by DNS-01 (Caddy, core), without which the bw CLI can't reach a restored Vaultwarden over TLS
+healthchecks api key	pauses the dead-man (tools/healthchecks-window.sh) when infra, and with it the site vault, is down unplanned (F-DEADMAN-WINDOW)

@@ -1,0 +1,30 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>technitium</Name>
+  <Repository>technitium/dns-server:15.5.1@sha256:b8efe03a5e3bdc6e9d2baff3f6e70c382c7f98afa2a7ca66f318d4b58a8d5944</Repository>
+  <Registry/>
+  <Network>br0</Network>
+  <MyIP>192.168.1.16</MyIP>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed (rung 5): Technitium DNS, ns2.seed.example.com, the secondary: zones transferred from ns1 on core (192.168.1.15). Its own address on br0 (macvlan): infra itself can't reach it. Settings and zones from site/dns/technitium/push.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--restart=unless-stopped --mac-address=02:00:00:00:00:01 --hostname=ns2</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="config" Target="/etc/dns" Default="" Mode="rw" Description="Technitium's configuration and zones" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/technitium/config</Config>
+  <Config Name="admin password (first start)" Target="/run/seed/technitium-admin" Default="" Mode="ro" Description="from the vault (deploy-infra-config)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/secrets/technitium-admin</Config>
+  <Config Name="DNS_SERVER_DOMAIN" Target="DNS_SERVER_DOMAIN" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">ns2.seed.example.com</Config>
+  <Config Name="DNS_SERVER_ADMIN_PASSWORD_FILE" Target="DNS_SERVER_ADMIN_PASSWORD_FILE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/run/seed/technitium-admin</Config>
+  <Config Name="DNS_SERVER_RECURSION" Target="DNS_SERVER_RECURSION" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">UseSpecifiedNetworkACL</Config>
+  <Config Name="DNS_SERVER_RECURSION_NETWORK_ACL" Target="DNS_SERVER_RECURSION_NETWORK_ACL" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">127.0.0.1,192.168.1.0/24</Config>
+  <Config Name="DNS_SERVER_LOG_MAX_LOG_FILE_DAYS" Target="DNS_SERVER_LOG_MAX_LOG_FILE_DAYS" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">30</Config>
+</Container>

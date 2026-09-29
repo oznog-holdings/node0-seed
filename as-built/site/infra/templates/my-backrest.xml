@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>backrest</Name>
+  <Repository>garethgeorge/backrest:v1.14.1@sha256:b852979754281026230cc69fb11428e6d57c9a97784ab4a444ffc7934c53a215</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: Backrest on infra, flow 1 (design: Backups): restic to B2 daily with the writer key, into the rung-0 bucket. Repository and B2 keys from the 0600 env file (expanded by Backrest), never in its config. Sources mounted read-only. HTTP on 127.0.0.1 behind Caddy.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 127.0.0.1:9898:9898 --hostname infra --env-file=/mnt/data/system/secrets/restic-infra.env --restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/data" Default="" Mode="rw" Description="operation log" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/backrest/data</Config>
+  <Config Name="config" Target="/config" Default="" Mode="rw" Description="config.json (no secrets: set through the API)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/backrest/config</Config>
+  <Config Name="cache" Target="/cache" Default="" Mode="rw" Description="restic cache" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/restic-cache/backrest</Config>
+  <Config Name="state" Target="/mnt/data/system/seed-state" Default="" Mode="rw" Description="completion timestamps for the monitoring" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/seed-state</Config>
+  <Config Name="src: appdata" Target="/mnt/data/appdata" Default="" Mode="ro" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata</Config>
+  <Config Name="src: identity" Target="/mnt/data/system/identity" Default="" Mode="ro" Description="host key tarballs (R1.73)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/identity</Config>
+  <Config Name="src: documents" Target="/mnt/data/documents" Default="" Mode="ro" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/documents</Config>
+  <Config Name="src: finance" Target="/mnt/data/finance" Default="" Mode="ro" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/finance</Config>
+  <Config Name="src: photos" Target="/mnt/data/photos" Default="" Mode="ro" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/photos</Config>
+  <Config Name="src: flash" Target="/boot" Default="" Mode="ro" Description="the Unraid flash (holds host keys: its backup is encrypted and off-box)" Type="Path" Display="always" Required="true" Mask="false">/boot</Config>
+  <Config Name="BACKREST_DATA" Target="BACKREST_DATA" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/data</Config>
+  <Config Name="BACKREST_CONFIG" Target="BACKREST_CONFIG" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/config/config.json</Config>
+  <Config Name="XDG_CACHE_HOME" Target="XDG_CACHE_HOME" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">/cache</Config>
+</Container>

@@ -1,0 +1,6 @@
+[Unit]
+Description=core's own metrics for node_exporter (time service, SD card, services)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-core-metrics

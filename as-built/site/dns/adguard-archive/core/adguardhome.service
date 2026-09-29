@@ -1,0 +1,28 @@
+# AdGuard Home on core: the site's DNS primary from rung 3 (design › DNS). Its config is
+# rendered from dns/rewrites.yaml by bin/render-adguard --host core and copied in at every
+# start, so a UI change lasts until the next restart (the form of `mutableSettings = false`
+# used on infra too); bin/check-dns reports drift on both servers.
+[Unit]
+Description=AdGuard Home (DNS primary; the site's names from the repo)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=adguardhome
+Group=adguardhome
+StateDirectory=adguardhome
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/adguardhome
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ExecStartPre=/usr/bin/install -m 0600 /etc/adguardhome/AdGuardHome.yaml /var/lib/adguardhome/AdGuardHome.yaml
+ExecStart=/opt/adguardhome/current/AdGuardHome --no-check-update -c /var/lib/adguardhome/AdGuardHome.yaml -w /var/lib/adguardhome
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

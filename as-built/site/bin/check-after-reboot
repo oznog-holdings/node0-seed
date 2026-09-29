@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# After any reboot of infra (a planned one, the power test, a crash): did the whole site come
+# back by itself? Runs from agentvm or from the orchestrator's machine (ssh to root@infra with
+# a key); the vault parts are skipped where there is no vault login. Exit 1 on any failure.
+# Written after F-ARRAY-AUTOSTART (20260924): the array stayed STOPPED after a reboot, and no
+# check of mine looked for it.
+set -uo pipefail
+INFRA=root@192.168.1.10; fail=0
+ok() { echo "ok    $*"; }; bad() { echo "FAIL  $*"; fail=1; }
+
+r=$(ssh -o ConnectTimeout=10 $INFRA '
+  echo "boot $(uptime -s)"
+  echo "startArray $(grep -oP "^startArray=\"\K[^\"]+" /boot/config/disk.cfg)"
+  echo "mdState $(grep -oP "^mdState=\"\K[^\"]+" /var/local/emhttp/var.ini)"
+  echo "pool $(zpool list -H -o health data 2>/dev/null || echo MISSING) $(findmnt -rn -o TARGET /mnt/data || echo NOT-MOUNTED)"
+  echo "docker $(/etc/rc.d/rc.docker status >/dev/null 2>&1 && echo running || echo stopped)"
+  echo "autostart-missing $(comm -23 <(grep . /var/lib/docker/unraid-autostart 2>/dev/null | cut -d" " -f1 | sort) <(docker ps --format "{{.Names}}" 2>/dev/null | sort) | tr "\n" " ")"
+  echo "running $(docker ps --format "{{.Names}}" 2>/dev/null | tr "\n" " ")"
+  echo "unhealthy $(docker ps --filter health=unhealthy --format "{{.Names}}" 2>/dev/null | tr "\n" " ")"
+  echo "agentvm $(virsh domstate agentvm 2>/dev/null)"
+  echo "sshd-tailnet $(ss -lnt | grep -c " 100.64.0.10:22 ")"
+  echo "resolvers $(awk "/^nameserver/{print \$2}" /etc/resolv.conf | tr "\n" " ")"
+  echo "resolves $(nslookup vault.seed.example.com 2>/dev/null | awk "/^Name/{getline; print \$2}" | head -1)"
+  echo "alerts $(curl -s 127.0.0.1:9090/api/v1/alerts | jq -r "[.data.alerts[] | select(.state==\"firing\") | .labels.alertname] | unique | join(\",\")" 2>/dev/null)"
+') || { bad "no ssh to infra"; exit 1; }
+v() { awk -v k="$1" '$1==k {sub($1" ",""); print}' <<<"$r"; }
+echo "infra booted $(v boot)"
+[[ $(v startArray) == yes ]] && ok "array auto start is on" || bad "array auto start is OFF (Settings > Disk Settings)"
+[[ $(v mdState) == STARTED ]] && ok "array started" || bad "array state $(v mdState): start it (Main > Start) and see F-ARRAY-AUTOSTART"
+[[ $(v pool) == "ONLINE /mnt/data" ]] && ok "pool data ONLINE and mounted" || bad "pool: $(v pool)"
+[[ $(v docker) == running ]] && ok "docker running" || bad "docker $(v docker)"
+[[ -z $(v autostart-missing | tr -d ' ') ]] && ok "every autostart container running" || bad "not running: $(v autostart-missing)"
+# every container the repo has a template for must run, autostart or not (technitium, ns2, was left off
+# Unraid's autostart list when it was created and stayed down after the power-off test of 20260929)
+miss=""; for x in "$(dirname "$0")"/../infra/templates/my-*.xml; do n=$(basename "$x" .xml); n=${n#my-}; [[ " $(v running) " == *" $n "* ]] || miss="$miss $n"; done
+[[ -z $miss ]] && ok "every container with a template in the repo is running" || bad "not running (template in the repo):$miss"
+[[ -z $(v unhealthy | tr -d ' ') ]] && ok "no unhealthy container" || bad "unhealthy: $(v unhealthy)"
+[[ $(v agentvm) == running ]] && ok "agentvm running" || bad "agentvm: $(v agentvm)"
+# infra's own resolver is the router (Unraid network settings, DNS_SERVER1): the router reaches both
+# ns1 and ns2, while infra's host can't reach ns2, its own macvlan container (rung 5; F-TWO-ADDRESSES)
+[[ $(v resolvers) == "192.168.1.1 " ]] && ok "infra resolves through the router (192.168.1.1)" || bad "infra's resolvers: $(v resolvers)(want the router only: never 192.168.1.16)"
+# site2 pulls the replica over the tailnet: sshd must listen there too (User Scripts sshd-tailnet, at array start)
+[[ $(v sshd-tailnet) == 1 ]] && ok "sshd listens on infra's tailnet address (site2's pull)" || bad "sshd not on 100.64.0.10:22: run /mnt/data/system/seed-bin/sshd-tailnet.sh"
+[[ $(v resolves) == 192.168.1.10 ]] && ok "infra resolves the site's names" || bad "infra resolves vault.seed.example.com to '$(v resolves)'"
+[[ $(v alerts) == Watchdog ]] && ok "only the Watchdog fires" || bad "firing: $(v alerts)"
+for u in https://infra.seed.example.com/healthz https://vault.seed.example.com/alive https://git.seed.example.com/api/healthz https://gw.seed.example.com/health/liveliness https://netbox.seed.example.com/login/; do
+  c=$(curl -s -m 10 --resolve "$(echo "$u" | cut -d/ -f3):443:192.168.1.10" -o /dev/null -w '%{http_code}' "$u")
+  [[ $c == 200 ]] && ok "$u" || bad "$u -> $c"
+done
+# core's ntfy (rung 3): the alerts leave through it
+c=$(curl -s -m 10 --resolve ntfy.seed.example.com:443:192.168.1.12 -o /dev/null -w '%{http_code}' https://ntfy.seed.example.com/v1/health)
+[[ $c == 200 ]] && ok "ntfy on core" || bad "ntfy on core -> $c"
+if command -v bw >/dev/null && [ -f "$HOME/.config/seed/bw-local.env" ]; then
+  "$(dirname "$0")/check-dns" >/dev/null 2>&1 && ok "DNS serves exactly rewrites.yaml" || bad "DNS drift, or ns1 or ns2 not answering (site/bin/check-dns)"
+  . "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"   # the site vault (SEED_VAULT=hosted: break-glass)
+  BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
+  K=$(bw get password 'healthchecks api key'); bw lock >/dev/null
+  s=$(curl -s -H @<(printf 'X-Api-Key: %s\n' "$K") https://healthchecks.io/api/v3/checks/ | jq -r '.checks[] | select(.slug=="seed-watchdog") | .status'); unset K
+  [[ $s == up ]] && ok "external dead-man up" || bad "external dead-man: $s"
+else echo "skip  DNS drift and dead-man checks (no vault login here)"; fi
+exit $fail

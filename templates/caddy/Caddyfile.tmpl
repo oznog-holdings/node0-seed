@@ -1,0 +1,97 @@
+# Caddy on infra: the site's HTTPS front door. One wildcard certificate for the subdomain by
+# DNS-01, so nothing needs to be reachable from the internet. The DNS provider's token lives
+# in an env file (mode 0600) passed with --env-file, never in this file.
+#
+# The DNS plugin below is DNSimple's; use your provider's Caddy DNS plugin instead (a Caddy
+# built with it). Choose a provider whose API token can be limited to your one domain.
+{
+	default_bind ${hosts.infra}
+	# Unraid's web UI holds :80 on this address; nothing here needs HTTP (DNS-01 only).
+	http_port 8080
+	auto_https disable_redirects
+	# Test against the staging CA once, then remove this line for production.
+	acme_ca {$ACME_CA}
+	admin localhost:2019
+}
+
+*.${site.domain} {
+	tls {
+		dns dnsimple {
+			account_id {$DNSIMPLE_ACCOUNT_ID}
+			api_access_token {$DNSIMPLE_API_ACCESS_TOKEN}
+		}
+		# check the TXT record at public resolvers, not the site's own DNS
+		resolvers 1.1.1.1 9.9.9.9
+		# a short TTL on the challenge record: a cached record from a staging run otherwise
+		# blocks the production run for the old record's full TTL (often an hour)
+		dns_ttl 60s
+	}
+
+	@infra host infra.${site.domain}
+	handle @infra {
+		# a health URL for the watcher on the agent box
+		respond /healthz "ok" 200
+		respond 404
+	}
+
+	@dns host dns.${site.domain}
+	handle @dns {
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	@git host git.${site.domain}
+	handle @git {
+		reverse_proxy 127.0.0.1:3001
+	}
+
+	@gw host gw.${site.domain}
+	handle @gw {
+		reverse_proxy 127.0.0.1:4000
+	}
+
+	@netbox host netbox.${site.domain}
+	handle @netbox {
+		reverse_proxy 127.0.0.1:8082
+	}
+
+	@rest host rest.${site.domain}
+	handle @rest {
+		# the backup server's metrics are for the monitoring on infra only
+		@metrics path /metrics
+		respond @metrics 404
+		reverse_proxy 127.0.0.1:8000
+	}
+
+	@backrest host backrest.${site.domain}
+	handle @backrest {
+		reverse_proxy 127.0.0.1:9898
+	}
+
+	# the monitoring UIs, behind a password (a bcrypt hash from the env file)
+	@prom host prom.${site.domain}
+	handle @prom {
+		basic_auth {
+			admin {$MONITORING_UI_HASH}
+		}
+		reverse_proxy 127.0.0.1:9090
+	}
+
+	@alerts host alerts.${site.domain}
+	handle @alerts {
+		basic_auth {
+			admin {$MONITORING_UI_HASH}
+		}
+		reverse_proxy 127.0.0.1:9093
+	}
+
+	@vault host vault.${site.domain}
+	handle @vault {
+		reverse_proxy 127.0.0.1:8081 {
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	handle {
+		respond "no such service" 404
+	}
+}

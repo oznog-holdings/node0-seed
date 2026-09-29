@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Render and push infra's container configs from this repo. Secrets come from the vault per
+# run and go straight to infra over ssh (umask 077); they never touch agentvm's disk.
+# Prints the sha256 of every file as infra holds it, for comparison with the local render.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+INFRA=root@192.168.1.10; A=/mnt/data/appdata; S=/mnt/data/system/secrets
+PY='python3.withPackages(p: [p.pyyaml])'
+# the Unraid UI session first: the restarts below go through the UI (a stale session made them fail silently,
+# 20260929), and unraid-login.sh ends with `bw lock`, which would end this script's vault session if run after
+# the unlock (it did, 20260929: the next `bw get` prompted for the master password)
+../tools/unraid-login.sh >/dev/null
+. "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"   # the site vault (SEED_VAULT=hosted: break-glass)
+BW_SESSION=$(bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; unset BW_PASSWORD BW_CLIENTSECRET
+trap 'bw lock >/dev/null 2>&1 || true' EXIT
+
+# fingerprints before (AdGuard's render left with it: retired 20260929, rung 5 › F; site/dns/adguard-archive)
+fp() { ssh $INFRA "cd $A; for f in chrony/chrony.conf caddy/Caddyfile litellm/config.yaml; do sha256sum \$f 2>/dev/null || echo none \$f; done"; }
+before=$(fp)
+ssh $INFRA "mkdir -p $A/chrony/state $A/caddy/data $A/caddy/config"
+# plain files
+for f in chrony/chrony.conf:$A/chrony/chrony.conf caddy/Caddyfile:$A/caddy/Caddyfile; do
+  src=infra/${f%%:*}; dst=${f#*:}
+  ssh $INFRA "cat > $dst.new && chmod 644 $dst.new && mv $dst.new $dst" < "$src"
+done
+# Caddy's DNSimple credentials: account id from the API, token from the vault
+tok=$(bw get password 'dnsimple example.com')
+acct=$(curl -sf -H "Authorization: Bearer $tok" https://api.dnsimple.com/v2/whoami | jq -r .data.account.id)
+[[ $acct =~ ^[0-9]+$ ]] || { echo "dnsimple whoami failed"; exit 1; }
+printf 'DNSIMPLE_API_ACCESS_TOKEN=%s\nDNSIMPLE_ACCOUNT_ID=%s\n' "$tok" "$acct" \
+  | ssh $INFRA "umask 077; cat > $S/caddy.env.new && mv $S/caddy.env.new $S/caddy.env"
+unset tok
+# Vaultwarden: ADMIN_TOKEN as argon2id (Vaultwarden's OWASP preset: m=64 MiB, t=3, p=4) of the vault item.
+# Written only when absent, since the container reads it at creation; to rotate, remove the file.
+if ! ssh $INFRA "test -s $S/vaultwarden.env"; then
+  phc=$(bw get password 'vaultwarden admin token' | tr -d '\n' | nix-shell -p libargon2 openssl --run 'argon2 "$(openssl rand -base64 32)" -e -id -k 65540 -t 3 -p 4' 2>/dev/null)
+  [[ $phc == '$argon2id$'* ]] || { echo "argon2 failed"; exit 1; }
+  printf 'ADMIN_TOKEN=%s\n' "$phc" | ssh $INFRA "umask 077; cat > $S/vaultwarden.env"; unset phc; echo "vaultwarden.env written"
+fi
+ssh $INFRA "mkdir -p $A/vaultwarden/data"
+# Forgejo (rootless image runs as 1000:1000)
+ssh $INFRA "mkdir -p $A/forgejo/data $A/forgejo/dumps && chown 1000:1000 $A/forgejo/data"
+# restic on infra (site data to B2, rung-0 bucket, writer key that cannot delete): 0600 env file
+{ printf 'AWS_ACCESS_KEY_ID=%s\n' "$(bw get username 'b2 seed-writer')"; printf 'AWS_SECRET_ACCESS_KEY=%s\n' "$(bw get password 'b2 seed-writer')"
+  printf 'RESTIC_PASSWORD=%s\n' "$(bw get password 'restic seed infra')"; printf 'RESTIC_REPOSITORY=s3:https://s3.us-east-005.backblazeb2.com/your-seed-bucket/restic/infra\n'; } \
+  | ssh $INFRA "umask 077; cat > $S/restic-infra.env.new && mv $S/restic-infra.env.new $S/restic-infra.env"
+# Shared Postgres, the gateway and NetBox. Env files written only when absent (containers read
+# them at creation; Postgres roles are fixed at first init). To rotate, change the role, then
+# remove the file. Values from the vault; streamed over ssh; never on agentvm's disk.
+put_env() {  # name, content on stdin; owner optional; third argument "replace" rewrites a present file
+  # (only for files whose every value is read from the vault each run, so a rewrite changes nothing else)
+  if [ "${3:-}" = replace ]; then ssh $INFRA "umask 077; cat > $S/$1.new; if cmp -s $S/$1.new $S/$1; then rm $S/$1.new; echo '$1: unchanged'; else mv $S/$1.new $S/$1; echo '$1: replaced'; fi"; return
+  fi
+  if ssh -n $INFRA "test -s $S/$1"; then cat >/dev/null; echo "$1: present, left as is"
+  else ssh $INFRA "umask 077; cat > $S/$1.new && mv $S/$1.new $S/$1 ${2:+&& chown $2 $S/$1}"; echo "$1: written"; fi
+}
+pg=$(bw get password 'postgres infra superuser'); pl=$(bw get password 'postgres litellm'); pn=$(bw get password 'postgres netbox')
+printf 'POSTGRES_PASSWORD=%s\nLITELLM_DB_PASSWORD=%s\nNETBOX_DB_PASSWORD=%s\n' "$pg" "$pl" "$pn" | put_env postgres.env
+# z.ai: the owner's GLM Coding Plan key (20260927, the owner's decision for configuration, testing and
+# proof; F-ZAI-CODING-PLAN). Rendered whenever the vault item exists; the payg-only guard of the
+# same day is undone (diary 20260927).
+zai=$(bw list items --search 'zai api key' | jq -r '[.[] | select(.name=="zai api key")] | if length==1 then .[0].login.password else "" end')
+{ printf 'DATABASE_URL=postgresql://litellm:%s@db.internal:5432/litellm\nLITELLM_MASTER_KEY=sk-%s\nLITELLM_SALT_KEY=sk-%s\nCOMPUTE_LLAMA_API_KEY=%s\n' \
+  "$pl" "$(bw get password 'litellm master key')" "$(bw get password 'litellm salt key')" "$(bw get password 'compute llama api key')"
+  if [ -n "$zai" ]; then printf 'ZAI_API_KEY=%s\n' "$zai"; fi
+  # every rpm_limit on this gateway counts per hour, not per minute (the Coding Plan's quota is hourly)
+  printf 'LITELLM_RATE_LIMIT_WINDOW_SIZE=3600\n'; } | put_env litellm.env "" replace; unset zai
+# the monitoring probe's gateway key (seed-metrics.sh section 8: the self-test and the rung-4 backend)
+# (the vault holds the key without its sk- prefix)
+printf 'GATEWAY_PROBE_KEY=sk-%s\n' "$(bw get password 'gateway key monitoring-probe')" | put_env monitoring-probe.env "" replace
+vk=$(bw get password 'valkey netbox')
+printf 'requirepass %s\n' "$vk" | put_env valkey.conf 999:1000
+printf 'DB_PASSWORD=%s\nREDIS_PASSWORD=%s\nREDIS_CACHE_PASSWORD=%s\nSECRET_KEY=%s\nSUPERUSER_PASSWORD=%s\nAPI_TOKEN_PEPPER_1=%s\n' \
+  "$pn" "$vk" "$vk" "$(bw get password 'netbox secret key')" "$(bw get password 'netbox admin')" "$(bw get password 'netbox api token pepper')" | put_env netbox.env
+unset pg pl pn vk
+# Caddy basic auth for the monitoring UIs: a bcrypt hash of the vault item, in its own env
+# file (written when absent: Caddy reads env files at container creation).
+bw get password 'monitoring ui' | tr -d '\n' | nix-shell -p apacheHttpd --run 'htpasswd -niB -C 12 admin' 2>/dev/null | cut -d: -f2- | tr -d '\n' | sed 's/^\$2y\$/$2a$/' | { IFS= read -r h || true; [[ $h == '$2a$'* ]] || { echo 'bcrypt failed' >&2; exit 1; }; printf 'MONITORING_UI_HASH=%s\n' "$h"; } | put_env caddy-auth.env
+# restic rest-server: one htpasswd line per machine (bcrypt from stdin), written when absent;
+# to add a machine, add it to MACHINES and remove the file. Repository passwords for the
+# server-side forget/prune (the one writer) in restic-rest.env, one variable per machine.
+MACHINES="agentvm agent compute"
+# exact-name lookup: `bw get` searches, so "restic seed agent" also matches "restic seed agentvm"
+# and fails with a list of item ids (seen 20260924). Stop on a missing or ambiguous item.
+vpw() { local p; p=$(bw list items --search "$1" | N="$1" jq -r '[.[] | select(.name==env.N)] | if length==1 then .[0].login.password else empty end'); [ -n "$p" ] || { echo "vault item '$1' missing or not unique" >&2; return 1; }; printf '%s' "$p"; }
+for m in $MACHINES; do vpw "rest-server $m" | nix-shell -p apacheHttpd --run "htpasswd -niB -C 10 $m" 2>/dev/null | grep -v '^$'; done | put_env rest-server.htpasswd
+for m in $MACHINES; do printf 'RESTIC_PASSWORD_%s=%s\n' "$m" "$(vpw "restic seed $m")"; done | put_env restic-rest.env
+# Technitium on infra (ns2, rung 5): its admin password, which the container reads at its first start only
+# (template my-technitium.xml mounts it read-only); after that site/dns/technitium/push logs in with the vault's
+vpw 'technitium infra admin' | put_env technitium-admin "" replace
+# rest-server reads its htpasswd only at start (a new machine got 401 until a restart, 20260924)
+# only for a running rest-server: on a fresh host (the rehearsal of 20260928) there is none, docker inspect
+# failed, the test read /proc/ and the restart aborted the script under set -e
+if ssh -n $INFRA 'p=$(docker inspect -f "{{.State.Pid}}" rest-server 2>/dev/null) && [ "${p:-0}" -gt 0 ] && [ /mnt/data/system/secrets/rest-server.htpasswd -nt /proc/$p ]' 2>/dev/null; then
+  echo "rest-server: htpasswd newer than the running server, restarting"; ../tools/unraid-docker-action.sh restart rest-server
+fi
+ssh $INFRA "mkdir -p /mnt/data/backups/rest && chmod 700 /mnt/data/backups/rest"
+ssh $INFRA "mkdir -p $A/postgres/data $A/postgres/initdb $A/postgres/dumps $A/litellm $A/valkey/data $A/netbox/media $A/netbox/reports $A/netbox/scripts && chown 999:1000 $A/valkey/data && chown 999:0 $A/netbox/media $A/netbox/reports $A/netbox/scripts"
+for f in postgres/10-seed-roles.sh:$A/postgres/initdb/10-seed-roles.sh litellm/config.yaml:$A/litellm/config.yaml; do
+  src=infra/${f%%:*}; dst=${f#*:}; ssh $INFRA "cat > $dst.new && chmod 644 $dst.new && mv $dst.new $dst" < "$src"
+done
+# what infra now holds (hashes and modes only)
+ssh $INFRA "cd $A && sha256sum chrony/chrony.conf caddy/Caddyfile && stat -c '%a %U %n' $S/caddy.env $S/vaultwarden.env $S/restic-infra.env $S/postgres.env $S/litellm.env $S/valkey.conf $S/netbox.env && grep -c . $S/caddy.env"
+sha256sum infra/chrony/chrony.conf infra/caddy/Caddyfile
+# a deploy restarts what changed, through the Docker page's own action (R1.26: a diff and a deploy)
+after=$(fp)
+for c in chrony caddy litellm; do   # litellm: config.yaml is a single-file bind mount, read at start (20260928)
+  b=$(grep -E "(/|  )$c$|$c/" <<<"$before" | head -1 | cut -d' ' -f1); a=$(grep -E "(/|  )$c$|$c/" <<<"$after" | head -1 | cut -d' ' -f1)
+  if [[ "$b" != "$a" ]]; then
+    if ssh $INFRA "docker ps -q -f name=^$c\$ | grep -q ."; then echo "$c: config changed, restarting"; ../tools/unraid-docker-action.sh restart $c; else echo "$c: config changed, container not running (not started)"; fi
+  else echo "$c: unchanged"; fi
+done
+# (Until rung 5 › F this ended with an AdGuard drift check and restart; the site's DNS is Technitium now,
+# pushed by site/dns/technitium/push and checked by site/bin/check-dns.)

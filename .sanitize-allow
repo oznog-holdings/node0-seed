@@ -1,0 +1,28 @@
+# Accepted exceptions for the sanitisation gate, one per line:
+#   rule=<rule> <literal-or-re:regex> # reason of at least three words
+rule=ipv4-literal re:192\.168\.50\.[0-9]{1,3} # documentation LAN used in every example
+rule=credential-store-name Bitwarden # the seed's chosen hosted password manager, named by Christoph
+rule=ipv4-literal 1.1.1.1 # public Cloudflare resolver used to check certificate records
+rule=ipv4-literal 9.9.9.9 # public Quad9 resolver used to check certificate records
+rule=credential-store-path re:secrets/[a-z-]+\.env # path to an env file, not a secret
+# as-built/ (added 20260928): the seed publishes its own configuration; node0's side is scrubbed
+# to documentation addresses by the lab's asbuilt-export.sh, and gitleaks runs as a second gate.
+rule=ipv4-literal re:[\w.:%-]*\b(?:127\.0\.[01]\.\d+|0\.0\.0\.\d+|192\.168\.(?:1|20|30|122|0)\.\d+|172\.1[67]\.0\.\d+|169\.254\.0\.\d+|10\.0\.0\.\d+|255\.255\.255\.\d+|9\.9\.9\.9|149\.112\.112\.112|1\.1\.1\.1|100\.64\.0\.\d+|100\.100\.100\.100)\b[\w.:%-]* # the seed's own LAN and wifi segments, localhost, container and libvirt ranges, public resolvers, private ranges in firewall rules, tailnet placeholders
+rule=cgnat-or-mesh-range re:[\w.:%-]*\b(?:100\.64\.0\.\d+|100\.100\.100\.100)\b[\w.:%-]* # tailnet placeholder addresses and the tailnet resolver, not real nodes
+rule=mac-address re:[\w.:%-]*02:00:00:00:00:01[\w.:%-]* # a locally administered placeholder MAC, not a real device
+rule=email-address re:.*@(?:(?:[\w-]+\.)*example\.com|db\.internal).* # the Seed's own service identities, on the placeholder domain seed.example.com, and example addresses
+rule=internal-hostname-suffix re:.*db\.internal.* # a container alias for the database host inside Docker
+rule=credential-store-name re:(?i)bitwarden # the seed's chosen hosted password manager, named by Christoph
+rule=credential-store-path re:.*(?:\.sops\.yaml|secrets/[\w.-]+\.(?:yaml|env)|~/\.ssh/id_|sops\.secrets).* # paths and references to encrypted or runtime secret files, never their contents
+rule=private-rule-3 re:.*sops\.secrets.* # sops-nix references to secret paths, not secret values
+rule=url-credential re:.*%s@.* # a printf template for a database URL, filled at run time from the vault
+rule=secret-assignment re:.*(?:%s|\$\(bw|os\.environ|\.login\.password|env\.PW|NB_TOKEN|NOPASSWD|= false|_token|tokens|csrf|token=\[|\.bcrypt64|config\.sops|secret[s]: (?:de|en)crypted|len\(secrets\)|every host gets|passwor[d]: restores|adguard/seed/AdGuardHome|\$2y\$10\$[ae]+).* # code that names a secret or reads it at run time, never a value; gitleaks checks values
+rule=ipv6-literal re:fe80::(?:/10)? # the IPv6 link-local range in a firewall rule for DHCPv6 replies
+rule=credential-store-name re:(?i)[\w.:%-]*bitwarden[\w.:%-]* # the Bitwarden command-line client, a package name
+rule=hex-token-near-secret-word re:.*\$2y\$10\$[ae]+.* # AdGuard's shipped dummy password hash from its defaults file
+rule=ipv4-literal re:[\w.:%-]*\b255\.0\.0\.0\b[\w.:%-]* # the loopback interface's netmask in the router's config
+rule=credential-store-path re:.*/root/\.ssh/.* # where a restricted key is installed on infra, named in comments; no key material
+rule=known-hosts-line re:.*restrict,from=.*AAAA\.\.\.REPLACE-WITH-YOUR-PUBLIC-KEY.* # the second site's restricted authorized_keys line, with its key already a placeholder
+rule=secret-assignment re:.*(?:_PASSWORD_FILE=|pass=%s|tokenName=).* # a setting naming a secret file's path, and token code that reads values from the vault at run time
+rule=ipv6-literal re:fd00:0:0::(?:/48)? # the placeholder the export puts in place of the router's IPv6 ULA prefix
+rule=secret-assignment re:.*password:env\.[A-Z]+.* # a jq template that takes the token from the environment at run time; no value

@@ -1,0 +1,35 @@
+# Unit tests for network.yml (promtool test rules).
+rule_files: [network.yml]
+evaluation_interval: 30s
+tests:
+  # (increase() extrapolates at the window edges: 77 for 80 changes)
+  # infra's eth0 flapping as on 20260928 (a change every ~8 s), a steady agent box, one replug on core,
+  # and a container veth that churns (ignored)
+  - interval: 30s
+    input_series:
+      - series: 'node_network_carrier_changes_total{instance="127.0.0.1:9100",device="eth0"}'
+        values: '1x20 1+4x20'
+      - series: 'node_network_carrier_changes_total{instance="192.168.1.11:9100",device="enp2s0"}'
+        values: '2x40'
+      - series: 'node_network_carrier_changes_total{instance="192.168.1.12:9100",device="eth0"}'
+        values: '1x20 3x20'
+      - series: 'node_network_carrier_changes_total{instance="127.0.0.1:9100",device="veth1a2b"}'
+        values: '0+6x40'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LinkFlapping
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: LinkFlapping
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: "127.0.0.1:9100", device: eth0 }
+            exp_annotations: { summary: "eth0 on 127.0.0.1:9100 changed link state 77 times in 10 minutes: a cable, a port or the NIC (on infra 20260928 a power cycle cured it; F-INFRA-LINK-FLAP)." }
+  # after a reboot the counter starts again from 1: not a flap
+  - interval: 30s
+    input_series:
+      - series: 'node_network_carrier_changes_total{instance="127.0.0.1:9100",device="eth0"}'
+        values: '9x10 1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: LinkFlapping
+        exp_alerts: []

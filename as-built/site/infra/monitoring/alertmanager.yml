@@ -1,0 +1,63 @@
+# Alertmanager on infra (design › Monitoring: alerts to ntfy; a dead-man that always fires,
+# to the phone at a slow cadence; an external dead-man pinged by the monitoring).
+# From rung 3 the alerts go to core's own ntfy (index › Rung 3: notifications on core, so an
+# alert about infra never passes through infra). Alerts about core itself, and about
+# delivery failing, go to the hosted topic instead: core's ntfy cannot carry the news of its
+# own absence (finding F-NOTIFY). The phone subscribes to both.
+# Secrets are read from files (/secrets, 0400, from the vault), never written here:
+# ntfy-core-token (vault "ntfy core alertmanager", tk_ + the value), ntfy-url (the hosted
+# topic), healthchecks-ping-url.
+route:
+  receiver: ntfy
+  group_by: [alertname, job, repo, pool, serial, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    # External dead-man (R1.44): Alertmanager pings Healthchecks.io every minute while the
+    # Watchdog fires (in practice every 2 min: a repeat waits for the next group flush);
+    # Healthchecks.io (check "seed monitoring dead-man", timeout 3 min, grace 3 min) alerts by
+    # its own channels when the pings stop. Ping URL from the vault item
+    # "healthchecks watchdog ping url", in /secrets/healthchecks-ping-url (0400).
+    - matchers: [alertname="Watchdog"]
+      receiver: healthchecks
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+      continue: true
+    # The dead-man that always fires, to the phone at a slow cadence (R1.82).
+    - matchers: [alertname="Watchdog"]
+      receiver: ntfy
+      group_wait: 0s
+      repeat_interval: 24h
+    # The UPS on battery (rules/power.yml): at once, since infra may shut down within a minute or two.
+    # A repeat every 10 minutes while it lasts. (On this bench the switch isn't on the UPS: during a real
+    # cut this can't leave infra, and core's power watch is the alert; rules/power.yml.)
+    - matchers: [alertname="UpsOnBattery"]
+      receiver: ntfy
+      group_wait: 0s
+      group_interval: 30s
+      repeat_interval: 10m
+    # About core's health (down, not answering, its own rules), or about notifications not
+    # being delivered: the hosted topic. core's other alerts (its deploy, the rehearsal) stay
+    # on core's ntfy, which works while those fire.
+    - matchers: [host="core", alertname=~"TargetDown|ProbeFailing|Core.*"]
+      receiver: ntfy-hosted
+    - matchers: [alertname="NotifierFailing"]
+      receiver: ntfy-hosted
+
+receivers:
+  - name: ntfy          # core's ntfy (rung 3); Alertmanager's user can only write to topic seed
+    webhook_configs:
+      - url: https://ntfy.seed.example.com/seed?template=alertmanager
+        http_config:
+          authorization: { credentials_file: /secrets/ntfy-core-token }
+        send_resolved: true
+  - name: ntfy-hosted   # ntfy.sh, unguessable topic (rungs 1 and 2; from rung 3 the fallback)
+    webhook_configs:
+      - url_file: /secrets/ntfy-url
+        send_resolved: true
+  - name: healthchecks
+    webhook_configs:
+      - url_file: /secrets/healthchecks-ping-url
+        send_resolved: false

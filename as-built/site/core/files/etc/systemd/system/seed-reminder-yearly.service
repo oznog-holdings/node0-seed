@@ -1,0 +1,7 @@
+# The site's calendar, part 2 (design › Backups: "check the bucket lifecycle yearly against the
+# billing report, not the size shown on the bucket"; R1.62). Needs a person: billing is the owner's.
+[Unit]
+Description=Reminder: the yearly bucket lifecycle check against billing is due
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-notify "Yearly: bucket lifecycle vs billing" 3 "Due: compare B2 billing (stored GB-months, both buckets) with the sizes restic and rclone report, and confirm daysFromHidingToDeleting=30 on your-seed-bucket and your-seed-machines-bucket (design, Backups; R1.62). The owner reads billing."

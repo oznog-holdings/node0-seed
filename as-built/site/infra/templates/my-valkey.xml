@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>valkey</Name>
+  <Repository>valkey/valkey:8.1.10-alpine@sha256:081c2f5cb575efc901aa80ff9cdbd1ec6a301682fd35e1ebb4b0990a4a4a8507</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: Valkey (Redis) for NetBox queue and cache. Published on docker0 (172.17.0.1) only; password in a 0600 file.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>-p 172.17.0.1:6379:6379 --restart=unless-stopped</ExtraParams>
+  <PostArgs>valkey-server /etc/valkey/seed.conf --dir /data --appendonly yes</PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data" Target="/data" Default="" Mode="rw" Description="append-only file" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/valkey/data</Config>
+  <Config Name="seed.conf" Target="/etc/valkey/seed.conf" Default="" Mode="ro" Description="requirepass (0600, owned by valkey)" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/secrets/valkey.conf</Config>
+</Container>

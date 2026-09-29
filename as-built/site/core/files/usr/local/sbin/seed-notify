@@ -1,0 +1,15 @@
+#!/bin/bash
+# One line to the site's notifications: core's own ntfy first (index › Rung 3: "notifications,
+# so an alert about infra never passes through infra"), the hosted topic if core's ntfy does
+# not take it (the fallback kept for alerts about core itself, finding F-NOTIFY).
+# Usage: seed-notify <title> <priority 1-5> <message>
+set -uo pipefail
+title=$1 prio=$2 msg=$3
+tok=$(cat /etc/seed/ntfy-power-token)
+if curl -sf -m 10 --resolve ntfy.seed.example.com:443:192.168.1.12 -H "Authorization: Bearer $tok" \
+     -H "Title: $title" -H "Priority: $prio" -H "Tags: seed,core" -d "$msg" https://ntfy.seed.example.com/seed >/dev/null; then
+  exit 0
+fi
+logger -t seed-notify "core's ntfy did not take the message; sending to the hosted topic"
+curl -sf -m 15 -H "Title: $title" -H "Priority: $prio" -H "Tags: seed,core,fallback" -d "$msg" "$(cat /etc/seed/ntfy-hosted-url)" >/dev/null \
+  || { logger -t seed-notify "hosted ntfy failed too: $title: $msg"; exit 1; }

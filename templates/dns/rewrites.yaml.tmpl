@@ -1,0 +1,22 @@
+# The site's names: the one list. Rendered into AdGuard Home's settings on infra and, from
+# rung 3, on core, so both serve the same names. Adding a name is one line and a deploy.
+# Only this subdomain is answered locally; everything else goes upstream.
+zone: ${site.domain}
+hosts:            # name -> address
+  router: ${lan.router}
+  infra: ${hosts.infra}
+  agent: ${hosts.agent}
+  core: ${hosts.core}
+  agentvm: ${hosts.agentvm}
+  compute: ${hosts.compute}
+services:         # name -> the host that serves it (through Caddy on infra; ntfy on core directly)
+  dns: infra      # AdGuard Home's UI
+  vault: infra    # Vaultwarden
+  git: infra      # Forgejo, the repository of record
+  gw: infra       # the model gateway (LiteLLM)
+  netbox: infra   # NetBox
+  rest: infra     # restic rest-server (append-only), the machines' backups
+  backrest: infra # Backrest (the site's data to the bucket)
+  prom: infra     # Prometheus (password at Caddy)
+  alerts: infra   # Alertmanager (password at Caddy)
+  ntfy: core      # notifications, served by ntfy with its own certificate

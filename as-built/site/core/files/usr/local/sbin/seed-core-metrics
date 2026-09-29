@@ -1,0 +1,35 @@
+#!/bin/bash
+# core's own state for the monitoring (ages, counts and states only): the time service, the
+# root filesystem (the USB SSD from 20260928: its ext4 error count) and, while it is fitted, the
+# SD card's identity (the way back), the services core exists for, and ntfy's certificate.
+set -uo pipefail
+tf=/var/lib/prometheus/node-exporter; now=$(date +%s); o=$tf/seed-core.prom
+{
+  tr=$(chronyc -c tracking 2>/dev/null)
+  if [ -n "$tr" ]; then
+    IFS=, read -r _ _ stratum _ systime _ _ _ _ _ _ _ _ leap <<<"$tr"
+    echo "# HELP seed_chrony_synced 1 if chrony on core is synchronised (leap status not 'Not synchronised')."
+    echo "# TYPE seed_chrony_synced gauge"
+    echo "seed_chrony_synced $([ "$leap" = "Not synchronised" ] && echo 0 || echo 1)"
+    echo "# TYPE seed_chrony_stratum gauge"; echo "seed_chrony_stratum $stratum"
+    echo "# TYPE seed_chrony_system_offset_seconds gauge"; echo "seed_chrony_system_offset_seconds $systime"
+    echo "# HELP seed_chrony_sources_reachable Sources with a non-zero reach register."
+    echo "# TYPE seed_chrony_sources_reachable gauge"
+    echo "seed_chrony_sources_reachable $(chronyc -c sources 2>/dev/null | awk -F, '$6 != 0' | wc -l)"
+  fi
+  echo "# HELP seed_rootfs_errors_total ext4 errors recorded on core's root filesystem (whatever / is mounted from; the USB SSD from 20260928)."
+  echo "# TYPE seed_rootfs_errors_total counter"
+  dev=$(basename "$(findmnt -n -o SOURCE /)")
+  echo "seed_rootfs_errors_total $(cat /sys/fs/ext4/$dev/errors_count 2>/dev/null || echo -1)"
+  d=/sys/block/mmcblk0/device
+  [ -r $d/serial ] && echo "seed_sd_info{name=\"$(cat $d/name)\",manfid=\"$(cat $d/manfid)\",serial=\"$(cat $d/serial)\",date=\"$(cat $d/date)\"} 1"
+  echo "# HELP seed_service_active 1 if the unit is active."
+  echo "# TYPE seed_service_active gauge"
+  for u in technitium chrony ntfy nftables prometheus-node-exporter; do
+    echo "seed_service_active{unit=\"$u\"} $(systemctl is-active --quiet $u && echo 1 || echo 0)"; done
+  if [ -r /etc/ntfy/tls/cert.pem ]; then
+    echo "# TYPE seed_cert_expiry_timestamp_seconds gauge"
+    echo "seed_cert_expiry_timestamp_seconds{name=\"ntfy\"} $(date -d "$(openssl x509 -enddate -noout -in /etc/ntfy/tls/cert.pem | cut -d= -f2)" +%s)"
+  fi
+  echo "# TYPE seed_core_metrics_last_run_timestamp_seconds gauge"; echo "seed_core_metrics_last_run_timestamp_seconds $now"
+} > $o.tmp && mv $o.tmp $o

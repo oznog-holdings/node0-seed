@@ -1,0 +1,56 @@
+# Prometheus on infra (design › Monitoring: Prometheus, Alertmanager, node_exporter and the
+# blackbox exporter as containers on infra, alerts to ntfy). Targets are in targets/*.yaml:
+# adding a target is a one-file diff, not PromQL (R1.90). Rules are in rules/, each deployed
+# with or after its producer (R1.80).
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+  external_labels:
+    site: seed
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["127.0.0.1:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs: [{ targets: ["127.0.0.1:9090"] }]
+
+  - job_name: alertmanager
+    static_configs: [{ targets: ["127.0.0.1:9093"] }]
+
+  # node_exporter, including the textfile producers (seed-metrics.sh)
+  - job_name: node
+    scrape_interval: 10s            # the UPS state is written every 10 s (seed-ups-metrics.sh); 30 s elsewhere
+    file_sd_configs: [{ files: ["/etc/prometheus/targets/node.yaml"] }]
+
+  - job_name: rest-server
+    static_configs: [{ targets: ["127.0.0.1:8000"] }]
+
+  # the site's HTTPS front doors, through Caddy and the certificate
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    file_sd_configs: [{ files: ["/etc/prometheus/targets/http.yaml"] }]
+    relabel_configs: &blackbox
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: "127.0.0.1:9115" }
+
+  # LAN services without TLS (targets/http-lan.yaml): compute's model backend (R4.10)
+  - job_name: blackbox-http-lan
+    metrics_path: /probe
+    params: { module: [http_2xx_lan] }
+    file_sd_configs: [{ files: ["/etc/prometheus/targets/http-lan.yaml"] }]
+    relabel_configs: *blackbox
+
+  # the site's DNS answers the site's names
+  - job_name: blackbox-dns
+    metrics_path: /probe
+    params: { module: [dns_site] }
+    file_sd_configs: [{ files: ["/etc/prometheus/targets/dns.yaml"] }]
+    relabel_configs: *blackbox

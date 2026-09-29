@@ -1,0 +1,22 @@
+[
+ {"doc": 5,   "q": "How does a dead NixOS machine come back?"},
+ {"doc": 39,  "q": "What are the dev hosts for, as opposed to operating the site?"},
+ {"doc": 73,  "q": "Which laptop serves gpt-oss-120b, and how much faster than di1?"},
+ {"doc": 107, "q": "In what order were hosts migrated when the VLAN identifiers were renumbered?"},
+ {"doc": 141, "q": "Why does per-host power come from the management controllers rather than the power strips?"},
+ {"doc": 175, "q": "How many Supermicro chassis were in the first batch of pulled gear?"},
+ {"doc": 209, "q": "How many fleet rules came out of the lesson collection?"},
+ {"doc": 243, "q": "What measurement finally identified the failing SSD?"},
+ {"doc": 277, "q": "Why did the cluster warning alert become a standing reminder?"},
+ {"doc": 311, "q": "How were a capacity alert and a health alert lost without any record?"},
+ {"doc": 345, "q": "Why did an alert on the mesh VPN's elected primary router misrepresent a healthy pair?"},
+ {"doc": 379, "q": "What check was built into the wrapper tool before removing a host's reverse DNS record?"},
+ {"doc": 413, "q": "Why is a forgotten extra DNS resolver on the network dangerous?"},
+ {"doc": 447, "q": "Why is a fresh duplicate safety mechanism worse than the older original?"},
+ {"doc": 481, "q": "What happens to a dashboard when its filter silently matches every device?"},
+ {"doc": 515, "q": "What habits keep an interim redirect from becoming a permanent under-provisioned arrangement?"},
+ {"doc": 549, "q": "Which inventory question should you ask about powering hosts on remotely?"},
+ {"doc": 583, "q": "Why could the pool's rewrite operation never be completed?"},
+ {"doc": 617, "q": "What was the real cause, after rate limiting was wrongly blamed?"},
+ {"doc": 651, "q": "Why is a model gateway taken at rung 1?"}
+]

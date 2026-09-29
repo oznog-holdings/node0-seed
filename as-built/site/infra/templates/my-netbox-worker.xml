@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>netbox-worker</Name>
+  <Repository>netboxcommunity/netbox:v4.7.1-5.1.1@sha256:59e3e5954d0243d8648f2fa7ba82cf7c7770aaeef392026cca8b21cd67411e74</Repository>
+  <Registry/>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: NetBox background worker (jobs, scripts, webhooks). No ports.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--add-host=db.internal:host-gateway --env-file=/mnt/data/system/secrets/netbox.env --restart=unless-stopped</ExtraParams>
+  <PostArgs>/opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker</PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="data: media" Target="/opt/netbox/netbox/media" Default="" Mode="rw" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/netbox/media</Config>
+  <Config Name="data: reports" Target="/opt/netbox/netbox/reports" Default="" Mode="rw" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/netbox/reports</Config>
+  <Config Name="data: scripts" Target="/opt/netbox/netbox/scripts" Default="" Mode="rw" Description="" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/netbox/scripts</Config>
+  <Config Name="DB_HOST" Target="DB_HOST" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">db.internal</Config>
+  <Config Name="DB_NAME" Target="DB_NAME" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">netbox</Config>
+  <Config Name="DB_USER" Target="DB_USER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">netbox</Config>
+  <Config Name="REDIS_HOST" Target="REDIS_HOST" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">db.internal</Config>
+  <Config Name="REDIS_DATABASE" Target="REDIS_DATABASE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">0</Config>
+  <Config Name="REDIS_CACHE_HOST" Target="REDIS_CACHE_HOST" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">db.internal</Config>
+  <Config Name="REDIS_CACHE_DATABASE" Target="REDIS_CACHE_DATABASE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">1</Config>
+  <Config Name="ALLOWED_HOSTS" Target="ALLOWED_HOSTS" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">netbox.seed.example.com localhost</Config>
+  <Config Name="CSRF_TRUSTED_ORIGINS" Target="CSRF_TRUSTED_ORIGINS" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">https://netbox.seed.example.com</Config>
+  <Config Name="TIME_ZONE" Target="TIME_ZONE" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">America/Denver</Config>
+  <Config Name="SUPERUSER_NAME" Target="SUPERUSER_NAME" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">admin</Config>
+  <Config Name="SUPERUSER_EMAIL" Target="SUPERUSER_EMAIL" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">admin@seed.example.com</Config>
+  <Config Name="SKIP_SUPERUSER" Target="SKIP_SUPERUSER" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">true</Config>
+  <Config Name="METRICS_ENABLED" Target="METRICS_ENABLED" Default="" Mode="" Description="" Type="Variable" Display="always" Required="true" Mask="false">false</Config>
+</Container>

@@ -1,0 +1,43 @@
+// The Seed's tailnet access policy (rung 5, 20260929). Replaces the default allow-all.
+// site2 (the second site) may reach only infra's ssh; only the agent box and infra may
+// reach site2's ssh; infra's monitoring may read site2's metrics. Everything else as before.
+{
+    "tagOwners": {
+        "tag:site2": ["autogroup:admin"],
+    },
+
+    "hosts": {
+        "agent":    "100.64.0.11",
+        "infra":    "100.64.0.10",
+        "seed-lan": "192.168.1.0/24",
+    },
+
+    "acls": [
+        // the owner's own devices reach each other and the site's LAN, as before
+        {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:member:*", "seed-lan:*"]},
+        // site2: infra's ssh, and nothing else
+        {"action": "accept", "src": ["tag:site2"], "dst": ["infra:22"]},
+        // only the agent box and infra reach site2's ssh; infra reads site2's node_exporter
+        {"action": "accept", "src": ["agent", "infra"], "dst": ["tag:site2:22"]},
+        {"action": "accept", "src": ["infra"], "dst": ["tag:site2:9100"]},
+    ],
+
+    // Tailscale SSH: unchanged from the default
+    "ssh": [
+        {
+            "action": "check",
+            "src":    ["autogroup:member"],
+            "dst":    ["autogroup:self"],
+            "users":  ["autogroup:nonroot", "root"],
+        },
+    ],
+
+    // Checked on every save: the editor refuses a policy that breaks these.
+    "tests": [
+        {
+            "src":    "tag:site2",
+            "accept": ["infra:22"],
+            "deny":   ["agent:22", "infra:443", "192.168.1.12:22"],
+        },
+    ],
+}

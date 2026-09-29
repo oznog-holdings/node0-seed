@@ -1,0 +1,24 @@
+# The site's names: the one list (design › DNS). From rung 5 pushed into Technitium as the zone
+# seed.example.com (dns/technitium/push; AdGuard's renders, rungs 1-4, are in dns/adguard-archive). Adding a name is a one-line diff
+# and a deploy. Only this subdomain is answered locally; everything else goes upstream.
+zone: seed.example.com
+hosts:            # name -> address (hosts.md is the inventory)
+  router: 192.168.1.1
+  infra: 192.168.1.10
+  agent: 192.168.1.11
+  core: 192.168.1.12
+  agentvm: 192.168.1.13
+  compute: 192.168.1.20
+  ns1: 192.168.1.15   # Technitium on core, the primary (rung 5): core's second address
+  fw: 192.168.1.2     # the firewall's management address beside the router (rung 6, phases 1-2)
+  ns2: 192.168.1.16   # Technitium on infra, the secondary (rung 5): its container's own address (br0)
+services:         # name -> the host that serves it (through its Caddy on infra; ntfy on core directly)
+  vault: infra    # Vaultwarden (deviation D.01)
+  git: infra      # Forgejo, the repo of record (deviation D.03)
+  gw: infra       # the model gateway (LiteLLM)
+  netbox: infra   # NetBox, the second inventory record (deviation D.02)
+  rest: infra     # restic rest-server (append-only), flow 2
+  backrest: infra # Backrest (flow 1 to B2)
+  prom: infra     # Prometheus UI (basic auth at Caddy)
+  alerts: infra   # Alertmanager UI (basic auth at Caddy)
+  ntfy: core      # notifications (rung 3), served by ntfy itself with its own certificate

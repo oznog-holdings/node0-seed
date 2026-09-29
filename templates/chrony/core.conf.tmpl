@@ -1,0 +1,21 @@
+# chrony on core: the site's time server from rung 3. infra is the second server.
+# Clients list core first (with prefer), then infra, then the public pool.
+#
+# The pool is preferred: while the internet is up, core takes its time from outside.
+pool 2.pool.ntp.org iburst maxsources 4 prefer
+# infra as a source too: it has a real-time clock, and a Raspberry Pi has none, so after a
+# cold start during an internet outage core takes infra's time instead of its own guess.
+# infra does NOT list core, so the two cannot time each other in a loop.
+server ${hosts.infra} iburst
+driftfile /var/lib/chrony/chrony.drift
+makestep 1 3
+leapseclist /usr/share/zoneinfo/leap-seconds.list
+# Serve the LAN, and keep serving through a long internet outage. `activate 0.1`: the local
+# clock is offered only after core has once been properly synchronised since it started, so a
+# Pi that booted with no clock and no internet never hands its guess to the house.
+allow ${lan.prefix}
+local stratum 10 orphan activate 0.1
+# chronyc only from core itself
+bindcmdaddress 127.0.0.1
+cmdallow 127.0.0.1
+# Keep comments on their own lines: chrony refuses a comment after a directive.

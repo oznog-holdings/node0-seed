@@ -1,0 +1,213 @@
+#!/bin/bash
+# core's whole configuration from the repo, idempotent. Run by seed-deploy from the tree it
+# fetched (the forge's `deploy` ref); at bootstrap once by hand from the same tree.
+# core is a Raspberry Pi 4 on Debian 13 (deviation), so this script is what a NixOS
+# configuration would be (finding F-DEBIAN): packages, pinned upstream binaries checked by
+# sha256, files, secrets from site/core/secrets.age, units enabled, changed ones restarted.
+# What core runs (index › Rung 3, "nothing else"): DNS primary (Technitium, ns1, on core's second
+# address 192.168.1.15, from rung 5; AdGuard Home until then, retired 20260929: see section 2b), NTP primary
+# (chrony), notifications (ntfy), the restore rehearsal, and the power watch. The home hub is
+# not installed: the home is not part of this site (owner, Q5).
+set -euo pipefail
+repo=${1:?usage: apply <repo checkout>}; C=$repo/site/core; F=$C/files
+# what must follow a change is noted in a file: it survives the subshells of pipes, and a run
+# that fails half-way leaves it for the next run (a changed file is not "changed" twice)
+mkdir -p -m 0700 /var/lib/seed-deploy; RS=/var/lib/seed-deploy/pending-restarts; touch "$RS"
+log() { echo "apply: $*"; }
+follow() { echo "$1" >> "$RS"; }
+changed() { case $1 in  # a changed file -> what must follow
+  /etc/systemd/system/*) follow daemon-reload ;;
+  /etc/chrony/*) follow chrony ;;
+  /etc/default/prometheus-node-exporter) follow prometheus-node-exporter ;;
+  /etc/systemd/journald.conf.d/*) follow systemd-journald ;;
+  /etc/ntfy/*) follow ntfy ;;
+  /etc/seed/technitium-admin|/etc/systemd/system/technitium.service) follow technitium ;;
+  esac; log "updated $1"; }
+put() {  # put <mode> <owner:group> <dst>   (content on stdin; written only if different)
+  local t; t=$(mktemp /run/seed-apply.XXXXXX); cat > "$t"
+  if ! cmp -s "$t" "$3" || [ "$(stat -c '%a %U:%G' "$3" 2>/dev/null)" != "${1#0} $2" ]; then
+    install -D -m "$1" -o "${2%:*}" -g "${2#*:}" "$t" "$3"; changed "$3"; fi
+  rm -f "$t"; }
+
+# offline (a chroot, SEED_APPLY_OFFLINE=1): systemd isn't running, and systemctl refuses --now there
+# (the first SSD build, 20260928); mask and disable still work on the files
+NOW=--now; [ "${SEED_APPLY_OFFLINE:-}" = 1 ] && NOW=
+
+# 1. Debian packages
+pkgs=(chrony apcupsd prometheus-node-exporter nftables acme.sh sqlite3 jq git age python3-yaml
+      unattended-upgrades bzip2 curl ca-certificates openssl bind9-dnsutils)
+missing=(); for p in "${pkgs[@]}"; do dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q 'ok installed' || missing+=("$p"); done
+if [ ${#missing[@]} -gt 0 ]; then
+  log "installing ${missing[*]}"; DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends "${missing[@]}"; fi
+# apcupsd is installed for apcaccess only. Its daemon would act on power events: masked, so
+# nothing on core can shut it down (site/runbooks/power-protocol.md).
+[ "$(systemctl is-enabled apcupsd 2>/dev/null)" = masked ] || { systemctl mask $NOW apcupsd; log "apcupsd daemon masked"; }
+# core is boring on purpose: no mDNS, no Bluetooth
+for u in avahi-daemon.socket avahi-daemon.service bluetooth.service; do
+  if systemctl is-enabled -q "$u" 2>/dev/null; then systemctl disable $NOW "$u" >/dev/null 2>&1; log "disabled $u"; fi; done
+
+# 2. pinned upstream binaries (site/core/pins), each checked by sha256
+while read -r name ver sum url; do
+  case $name in ''|\#*) continue ;; esac
+  case $name in
+    ntfy)        have=$([ "$(dpkg-query -W -f='${Version}' ntfy 2>/dev/null)" = "$ver" ] && echo y || true) ;;
+    restic)      have=$([ -x /usr/local/lib/seed/restic-$ver ] && echo y || true) ;;
+    aspnetcore)  have=$([ -x /opt/dotnet/$ver/dotnet ] && echo y || true) ;;
+    technitium)  have=$([ -f /opt/technitium/$ver/DnsServerApp.dll ] && echo y || true) ;;
+    *) log "unknown pin $name"; exit 1 ;;
+  esac
+  if [ -z "$have" ]; then
+    t=$(mktemp -d); curl -sfL -m 600 -o "$t/a" "$url"
+    echo "$sum  $t/a" | sha256sum -c --quiet || { rm -rf "$t"; log "sha256 MISMATCH for $name $ver: not installed"; exit 1; }
+    case $name in
+      ntfy)        dpkg -i "$t/a" >/dev/null; follow ntfy ;;
+      restic)      mkdir -p /usr/local/lib/seed; bunzip2 -c "$t/a" > /usr/local/lib/seed/restic-$ver; chmod 0755 /usr/local/lib/seed/restic-$ver ;;
+      aspnetcore|technitium) d=/opt/$([ $name = aspnetcore ] && echo dotnet || echo technitium)/$ver
+                   rm -rf "$d.new"; mkdir -p "$d.new"; tar -xzf "$t/a" -C "$d.new"; mv "$d.new" "$d"; follow technitium ;;
+    esac
+    rm -rf "$t"; log "installed $name $ver (sha256 checked)"
+  fi
+  case $name in
+    restic)      [ "$(readlink /usr/local/bin/restic)" = "/usr/local/lib/seed/restic-$ver" ] || ln -sfn /usr/local/lib/seed/restic-$ver /usr/local/bin/restic ;;
+    aspnetcore)  [ "$(readlink /opt/dotnet/current)" = "$ver" ] || { ln -sfn "$ver" /opt/dotnet/current; follow technitium; } ;;
+    technitium)  [ "$(readlink /opt/technitium/current)" = "$ver" ] || { ln -sfn "$ver" /opt/technitium/current; follow technitium; } ;;
+  esac
+done < "$C/pins"
+# 2b. retired services (rung 5 › F, 20260929): AdGuard Home. Stopped, disabled and its unit removed, so
+#     nothing starts it; its binary (/opt/adguardhome), config (/etc/adguardhome) and data
+#     (/var/lib/adguardhome) stay on core, and its repo files are in site/dns/adguard-archive (the way back)
+if [ -e /etc/systemd/system/adguardhome.service ]; then
+  systemctl disable $NOW adguardhome >/dev/null 2>&1 || true
+  rm -f /etc/systemd/system/adguardhome.service; follow daemon-reload; log "retired adguardhome (stopped, disabled, unit removed)"
+fi
+id technitium >/dev/null 2>&1 || useradd --system --home-dir /var/lib/technitium --shell /usr/sbin/nologin technitium
+# the person's admin account logs in with a shell: the image's placeholder account (pi, renamed to admin by
+# the SSD build) has /usr/sbin/nologin until userconfig runs, which the build masks (20260928)
+[ "$(getent passwd admin | cut -d: -f7)" = /bin/bash ] || { usermod -s /bin/bash admin; log "admin's shell set to /bin/bash"; }
+# ...and the image's "set up a valid user" ssh banner, which userconfig would also have removed
+if [ -e /etc/ssh/sshd_config.d/rename_user.conf ]; then
+  rm -f /etc/ssh/sshd_config.d/rename_user.conf; systemctl reload ssh 2>/dev/null || true; log "removed the image's rename_user ssh banner"; fi
+# ntfy's package makes its user and group only when systemd is running, so not in a chroot (the SSD
+# build of 20260928 stopped at "invalid group 'ntfy'"): made here if missing, as its postinst would
+getent group ntfy >/dev/null || groupadd --system ntfy
+id ntfy >/dev/null 2>&1 || useradd --system --no-create-home -g ntfy --shell /usr/sbin/nologin ntfy
+install -d -o ntfy -g ntfy -m 0700 /var/cache/ntfy /var/cache/ntfy/attachments /var/lib/ntfy
+
+# 3. files from site/core/files (scripts 0755, the rest 0644) and the deploy script itself
+while read -r f; do
+  d=${f#.}; case $d in /usr/local/sbin/*) m=0755 ;; *) m=0644 ;; esac
+  put $m root:root "$d" < "$F$d"
+done < <(cd "$F" && find . -type f | sort)
+put 0755 root:root /usr/local/sbin/seed-deploy < "$C/seed-deploy"
+# the forge by address, so a DNS fault never stops a deploy (as on the agent box)
+grep -q ' git.seed.example.com$' /etc/hosts || { echo '192.168.1.10 git.seed.example.com' >> /etc/hosts; log "forge added to /etc/hosts"; }
+
+# 4. secrets: decrypted with core's host key into memory, then into their files (0600 or
+#    readable by the one service group); never onto the SD card in any other form
+S=$(age -d -i /etc/ssh/ssh_host_ed25519_key "$C/secrets.age")
+sv() { sed -n "s/^$1='\(.*\)'\$/\1/p" <<<"$S"; }
+printf "AWS_ACCESS_KEY_ID='%s'\nAWS_SECRET_ACCESS_KEY='%s'\nRESTIC_PASSWORD='%s'\nRESTIC_REPOSITORY='%s'\n" \
+  "$(sv AWS_ACCESS_KEY_ID)" "$(sv AWS_SECRET_ACCESS_KEY)" "$(sv RESTIC_PASSWORD)" \
+  's3:https://s3.us-east-005.backblazeb2.com/your-seed-bucket/restic/infra' | put 0600 root:root /etc/seed/restic-b2.env
+printf "DNSimple_OAUTH_TOKEN='%s'\n" "$(sv DNSIMPLE_OAUTH_TOKEN)" | put 0600 root:root /etc/seed/acme.env
+sv NTFY_TOKEN_POWER | put 0600 root:root /etc/seed/ntfy-power-token
+sv NTFY_HOSTED_URL | put 0600 root:root /etc/seed/ntfy-hosted-url
+# Technitium reads its admin password from this file at its first start only (no newline); after
+# that the password lives in its own config, and site/dns/technitium/push logs in with the vault's
+sv TECHNITIUM_ADMIN_PASSWORD | tr -d '\n' | put 0640 root:technitium /etc/seed/technitium-admin
+cat <<EOF | put 0640 root:ntfy /etc/ntfy/server.yml
+# ntfy on core (index › Rung 3: notifications on core, so an alert about infra never passes
+# through infra). Rendered by site/core/apply; users and tokens from core's secrets.
+base-url: "https://ntfy.seed.example.com"
+listen-http: "127.0.0.1:2586"
+listen-https: "192.168.1.12:443"
+cert-file: "/etc/ntfy/tls/cert.pem"
+key-file: "/etc/ntfy/tls/key.pem"
+cache-file: "/var/lib/ntfy/cache.db"
+cache-duration: "24h"
+auth-file: "/var/lib/ntfy/user.db"
+auth-default-access: "deny-all"
+auth-users:
+  - "phone:$(sv NTFY_PHONE_HASH):user"
+  - "alertmanager:$(sv NTFY_HASH_ALERTMANAGER):user"
+  - "watcher:$(sv NTFY_HASH_WATCHER):user"
+  - "power:$(sv NTFY_HASH_POWER):user"
+auth-access:
+  - "phone:seed:ro"
+  - "alertmanager:seed:wo"
+  - "watcher:seed:wo"
+  - "power:seed:wo"
+auth-tokens:
+  - "alertmanager:$(sv NTFY_TOKEN_ALERTMANAGER):alertmanager on infra"
+  - "watcher:$(sv NTFY_TOKEN_WATCHER):the watcher on the agent box"
+  - "power:$(sv NTFY_TOKEN_POWER):core's own power watch"
+# a phone on iOS is woken through ntfy.sh (a poll request carrying a hash of the topic, never
+# the message), since Apple's push service only talks to ntfy.sh
+upstream-base-url: "https://ntfy.sh"
+log-level: "info"
+EOF
+unset S
+
+# what runs on core (section 6 enables and starts these; the offline stage only enables them)
+units=(chrony prometheus-node-exporter technitium unattended-upgrades
+       seed-deploy.timer seed-power-watch.timer seed-core-metrics.timer seed-cert.timer seed-restore-rehearsal.timer
+       seed-reminder-quarterly.timer seed-reminder-yearly.timer)
+# offline stage (SEED_APPLY_OFFLINE=1): a new medium built from a chroot (site/core/ssd/README.md).
+# What fills the disk is done (sections 1-4). Enable what must run at its first boot (DNS, NTP,
+# ntfy, the firewall, the timers), get ntfy's certificate, and stop. The running system's steps
+# (load the firewall, start and restart, the resolver, the checks) follow at first boot, when
+# seed-deploy runs this script again (seed-deploy.timer, 5 min after boot).
+if [ "${SEED_APPLY_OFFLINE:-}" = 1 ]; then
+  for u in "${units[@]}" nftables ntfy; do systemctl enable -q "$u"; done
+  [ -s /etc/ntfy/tls/cert.pem ] || /usr/local/sbin/seed-cert
+  : > "$RS"; log "offline stage done: sections 1-4, units enabled, certificate present"; exit 0
+fi
+
+# 5. the firewall: checked before it is loaded, loaded through its unit
+if ! nft list table inet seed >/dev/null 2>&1 || ! cmp -s /etc/nftables.conf /var/lib/seed-deploy/nftables.loaded; then
+  nft -c -f /etc/nftables.conf && systemctl enable -q nftables && systemctl restart nftables \
+    && cp /etc/nftables.conf /var/lib/seed-deploy/nftables.loaded && log "firewall loaded"; fi
+systemctl is-enabled -q nftables || systemctl enable -q nftables
+systemctl is-active -q nftables || { systemctl start nftables; log "started nftables"; }
+
+# 6. units
+grep -qx daemon-reload "$RS" && systemctl daemon-reload
+for u in "${units[@]}"; do
+  systemctl is-enabled -q "$u" 2>/dev/null || { systemctl enable -q "$u"; log "enabled $u"; }
+  systemctl is-active -q "$u" || { systemctl start "$u"; log "started $u"; }
+done
+# ntfy needs its certificate; seed-cert gets it (DNS-01) the first time
+[ -s /etc/ntfy/tls/cert.pem ] || /usr/local/sbin/seed-cert
+systemctl is-enabled -q ntfy || systemctl enable -q ntfy
+for u in $(grep -vx daemon-reload "$RS" | sort -u); do systemctl restart "$u"; log "restarted $u"; done
+: > "$RS"
+systemctl is-active -q ntfy || systemctl start ntfy
+touch /var/lib/seed-deploy/applied
+
+# 7. core's address for ns1, then its resolver
+nm="Wired connection 1"
+# ns1 (rung 5): Technitium's address, the second on eth0 (hosts.md); the first stays .12
+case "$(nmcli -g ipv4.addresses con show "$nm")" in
+  "192.168.1.12/24,192.168.1.15/24"|"192.168.1.12/24, 192.168.1.15/24") ;;   # nmcli -g separates addresses with ", " (its dns list with ",")
+  "192.168.1.12/24") nmcli con mod "$nm" +ipv4.addresses 192.168.1.15/24 && nmcli dev reapply eth0 >/dev/null
+                     log "added 192.168.1.15/24 (ns1) to eth0"; systemctl restart technitium; log "restarted technitium (its console binds .15)" ;;
+  *) log "WARNING: eth0 is not at 192.168.1.12/24 (+ .15 for ns1) (hosts.md); not changed by apply" ;;
+esac
+
+# core's resolver: Technitium, ns1 on core itself first, ns2 on infra second (the same order DHCP gives the
+# LAN); set after the address and Technitium are up, so core never waits on a resolver that isn't there
+if [ "$(nmcli -g ipv4.dns con show "$nm")" != "192.168.1.15,192.168.1.16" ]; then
+  nmcli con mod "$nm" ipv4.dns "192.168.1.15 192.168.1.16" ipv4.ignore-auto-dns yes && nmcli dev reapply eth0 >/dev/null; log "resolver set to 192.168.1.15, 192.168.1.16"; fi
+
+# 8. the result, checked (a failure here fails the deploy, which the monitoring sees)
+bad=0
+for u in chrony technitium ntfy nftables prometheus-node-exporter; do systemctl is-active -q "$u" || { log "NOT ACTIVE: $u"; bad=1; }; done
+# (Technitium may have just restarted: give it up to 30 s to listen)
+dnsok=0; for i in $(seq 1 15); do [ "$(dig +short +time=2 +tries=1 @192.168.1.15 infra.seed.example.com)" = 192.168.1.10 ] && { dnsok=1; break; }; sleep 2; done
+[ $dnsok = 1 ] || { log "DNS on core does not answer the site's names"; bad=1; }
+nft list table inet seed >/dev/null || { log "firewall not loaded"; bad=1; }
+# the SSD's bridge drops off on uas (F-CORE-SSD-UAS): with it attached, the no-UAS quirk must be on the kernel line
+if ls /dev/disk/by-id/usb-NetacPortableSSD_* >/dev/null 2>&1 && ! grep -q 'usb-storage.quirks=0dd8:2320:u' /proc/cmdline; then
+  log "WARNING: the Netac SSD is attached but the kernel runs without usb-storage.quirks=0dd8:2320:u (site/core/README.md)"; fi
+[ $bad = 0 ] && log "core as the repo says"
+exit $bad

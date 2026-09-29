@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>adguard</Name>
+  <Repository>adguard/adguardhome:v0.107.79@sha256:aba9e3bf0613be3ba3755e1fc311b126e2c24bec25e18b6483894a88283074f0</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed: DNS for the LAN (design: DNS). Config rendered from dns/rewrites.yaml and replaced at every start.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--entrypoint=/bin/sh --restart=unless-stopped</ExtraParams>
+  <PostArgs>/seed/start.sh</PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="seed (rendered config, ro)" Target="/seed" Default="" Mode="ro" Description="AdGuardHome.yaml and start.sh from the site repo" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/adguard/seed</Config>
+  <Config Name="conf" Target="/opt/adguardhome/conf" Default="" Mode="rw" Description="working copy, overwritten at start" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/adguard/conf</Config>
+  <Config Name="work" Target="/opt/adguardhome/work" Default="" Mode="rw" Description="query log, statistics, filters" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/appdata/adguard/work</Config>
+</Container>

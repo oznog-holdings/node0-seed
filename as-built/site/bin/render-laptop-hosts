@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""The site's names as an /etc/hosts block for the laptop, from the one list (dns/rewrites.yaml),
+so the laptop resolves the site with both DNS servers down (a render of the list, beside
+Technitium's zone; until rung 5 › F also AdGuard's). Boxes get their full and short names; services the address of the
+host that serves them. site/laptop/check-laptop compares the installed block with this output.
+  render-laptop-hosts > block
+"""
+import os, sys, yaml
+
+here = os.path.dirname(os.path.abspath(__file__))
+d = yaml.safe_load(open(os.path.join(here, '..', 'dns', 'rewrites.yaml')))
+zone, hosts, services = d['zone'], d['hosts'], d['services']
+print(f'# BEGIN {zone} (rendered by site/bin/render-laptop-hosts from dns/rewrites.yaml; do not edit)')
+for name, addr in hosts.items():
+    print(f'{addr}\t{name}.{zone} {name}')
+for name, host in services.items():
+    if host not in hosts:
+        sys.exit(f'service {name}: unknown host {host}')
+    print(f'{hosts[host]}\t{name}.{zone}')
+print(f'# END {zone}')

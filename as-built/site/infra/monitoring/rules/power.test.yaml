@@ -1,0 +1,78 @@
+# Unit tests for power.yml (promtool test rules), at the group's own 10 s evaluation.
+rule_files: [power.yml]
+evaluation_interval: 10s
+tests:
+  # mains for a minute, then on battery: firing 10 s after the first read that sees it
+  - interval: 10s
+    input_series:
+      - series: 'seed_ups_on_battery'
+        values: '0x5 1x12'
+      - series: 'seed_ups_battery_charge_percent'
+        values: '100x5 79x12'
+      - series: 'seed_ups_timeleft_minutes'
+        values: '281x5 98x12'
+      - series: 'seed_ups_up'
+        values: '1x17'
+      - series: 'seed_ups_metrics_last_run_timestamp_seconds'
+        values: '0+10x17'
+    alert_rule_test:
+      - eval_time: 50s
+        alertname: UpsOnBattery
+        exp_alerts: []
+      - eval_time: 60s
+        alertname: UpsOnBattery
+        exp_alerts: []
+      - eval_time: 70s
+        alertname: UpsOnBattery
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations: { summary: "UPS on battery: 79% charge, 98 min left. infra shuts itself down at 25% or 10 min left." }
+      - eval_time: 170s
+        alertname: UpsUnreachable
+        exp_alerts: []
+      - eval_time: 170s
+        alertname: UpsMetricsStale
+        exp_alerts: []
+  # the incident's case: straight from ONLINE to SHUTTING DOWN (the producer's 1), then infra is gone
+  - interval: 10s
+    input_series:
+      - series: 'seed_ups_on_battery'
+        values: '0x2 1x3'
+      - series: 'seed_ups_battery_charge_percent'
+        values: '100x5'
+      - series: 'seed_ups_timeleft_minutes'
+        values: '281x5'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: UpsOnBattery
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations: { summary: "UPS on battery: 100% charge, 281 min left. infra shuts itself down at 25% or 10 min left." }
+  # apcupsd not answering: after 5 minutes
+  - interval: 10s
+    input_series:
+      - series: 'seed_ups_up'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 290s
+        alertname: UpsUnreachable
+        exp_alerts: []
+      - eval_time: 300s
+        alertname: UpsUnreachable
+        exp_alerts:
+          - exp_labels: { severity: critical }
+            exp_annotations: { summary: "apcupsd does not answer on infra: a power event would go unnoticed." }
+  # the producer stops: its timestamp frozen at 0
+  - interval: 10s
+    input_series:
+      - series: 'seed_ups_metrics_last_run_timestamp_seconds'
+        values: '0x40'
+    alert_rule_test:
+      - eval_time: 180s
+        alertname: UpsMetricsStale
+        exp_alerts: []
+      - eval_time: 250s
+        alertname: UpsMetricsStale
+        exp_alerts:
+          - exp_labels: { severity: warning }
+            exp_annotations: { summary: "The UPS producer (seed-ups-metrics.sh) has not written for 4m 10s: the power alert is blind." }

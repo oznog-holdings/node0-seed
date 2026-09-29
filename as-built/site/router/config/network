@@ -1,0 +1,49 @@
+package network
+
+config interface 'loopback'
+	option device 'lo'
+	option proto 'static'
+	option ipaddr '127.0.0.1'
+	option netmask '255.0.0.0'
+
+config globals 'globals'
+	option ula_prefix 'fd00:0:0::/48'
+
+config device
+	option name 'br-lan'
+	option type 'bridge'
+	list ports 'eth1'
+
+config interface 'lan'
+	option device 'br-lan'
+	option proto 'static'
+	option ipaddr '192.168.1.1'
+	option netmask '255.255.255.0'
+	option ip6assign '60'
+
+# lab-owned (not in the repository): config interface 'wan'
+
+# lab-owned (not in the repository): config interface 'wan6'
+
+config device 'br_guest'
+	option type 'bridge'
+	option name 'br-guest'
+	option bridge_empty '1'
+
+config interface 'guest'
+	option device 'br-guest'
+	option proto 'static'
+	option ipaddr '192.168.20.1'
+	option netmask '255.255.255.0'
+
+config device 'br_iot'
+	option type 'bridge'
+	option name 'br-iot'
+	option bridge_empty '1'
+
+config interface 'iot'
+	option device 'br-iot'
+	option proto 'static'
+	option ipaddr '192.168.30.1'
+	option netmask '255.255.255.0'
+

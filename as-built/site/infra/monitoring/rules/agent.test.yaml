@@ -1,0 +1,65 @@
+# Unit tests for agent.yml (promtool test rules), sampled every 5 minutes (see floor.test.yaml).
+rule_files: [agent.yml]
+evaluation_interval: 1m
+tests:
+  - interval: 5m
+    input_series:
+      - series: 'seed_deploy_last_result{stage="fetch",host="agent"}'
+        values: '0x20'
+      - series: 'seed_deploy_last_success_timestamp_seconds{host="agent"}'
+        values: '0x20'
+      - series: 'seed_watcher_last_run_timestamp_seconds{host="agent"}'
+        values: '0+300x4 1200x16'
+      - series: 'seed_watcher_ok{host="agent"}'
+        values: '1x20'
+      - series: 'seed_build_check_last_result{host="agent"}'
+        values: '0x20'
+      - series: 'seed_build_check_last_attempt_timestamp_seconds{host="agent"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DeployFailing
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: DeployFailing
+        exp_alerts:
+          - exp_labels: { severity: warning, stage: fetch, host: agent }
+            exp_annotations: { summary: "agent: pull-deploy failing at stage fetch (it fails closed: the box stays as it was)." }
+      - eval_time: 50m
+        alertname: DeployStale
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: DeployStale
+        exp_alerts:
+          - exp_labels: { severity: warning, host: agent }
+            exp_annotations: { summary: "agent: no successful pull-deploy for 1h 30m 0s (it runs every 15 minutes)." }
+      - eval_time: 15m
+        alertname: AgentWatcherStale
+        exp_alerts: []
+      - eval_time: 50m
+        alertname: AgentWatcherStale
+        exp_alerts:
+          - exp_labels: { severity: critical, host: agent }
+            exp_annotations: { summary: "The watcher on the agent box has not run for 30m 0s: infra's outside view is gone." }
+      - eval_time: 50m
+        alertname: AgentWatcherFailing
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: BuildCheckFailed
+        exp_alerts:
+          - exp_labels: { severity: warning, host: agent }
+            exp_annotations: { summary: "The nightly build of every host's closure from deploy failed: a deploy would fail too." }
+  # the /work guard (work-state.nix): fires as soon as the guard reports 0
+  - interval: 1m
+    input_series:
+      - series: 'seed_work_guard_ok{host="agent"}'
+        values: '1 1 1 0 0'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AgentWorkGuard
+        exp_alerts: []
+      - eval_time: 4m
+        alertname: AgentWorkGuard
+        exp_alerts:
+          - exp_labels: { severity: critical, host: agent }
+            exp_annotations: { summary: "agent: /work is not the pinned filesystem; the agent's state mounts and the /work backup refused to start." }

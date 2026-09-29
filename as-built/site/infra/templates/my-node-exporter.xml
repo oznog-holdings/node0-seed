@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>node-exporter</Name>
+  <Repository>prom/node-exporter:v1.12.1@sha256:1b4e4438faca4dd7e001dd445d161a4a2091b0fededa84093b3a8dfeae1f1be0</Repository>
+  <Registry/>
+  <Network>host</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support/>
+  <Project/>
+  <Overview>Seed monitoring: node_exporter for infra, with the textfile producers. 127.0.0.1:9100 only.</Overview>
+  <Category/>
+  <WebUI/>
+  <TemplateURL/>
+  <Icon/>
+  <ExtraParams>--pid=host -v /mnt/data:/host/mnt/data:ro --restart=unless-stopped</ExtraParams>
+  <PostArgs>--path.rootfs=/host --web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/textfile</PostArgs>
+  <CPUset/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="textfile" Target="/textfile" Default="" Mode="ro" Description="producers: seed-metrics.sh output" Type="Path" Display="always" Required="true" Mask="false">/mnt/data/system/metrics</Config>
+</Container>
