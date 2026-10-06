@@ -44,7 +44,19 @@ let
     git -C $repo checkout --force --detach "origin/$ref" || fail checkout
     rev=$(git -C $repo rev-parse HEAD)
     echo "seed-deploy: deploying $ref at $rev"
-    nixos-rebuild switch --flake "$repo/nixos#${cfg.host}" || fail switch
+    # build first; switch only when the built system differs from the running one. Switching every 15 minutes on no
+    # change reloaded the system manager and re-executed every user manager each time (the agents' user units too),
+    # and re-based transient --on-active timers (the orchestrator, 20261004: the scheduled no-op that still writes)
+    new=$(nix build --no-link --print-out-paths "$repo/nixos#nixosConfigurations.${cfg.host}.config.system.build.toplevel") || fail build
+    # no change = the build is what runs, what boots, and what the last switch here completed (a failed switch or a
+    # manual boot/test elsewhere is not "no change": it switches again; Codex, 20261004)
+    if [ "$new" = "$(readlink -f /run/current-system)" ] && [ "$new" = "$(readlink -f /nix/var/nix/profiles/system)" ] \
+       && [ "$new" = "$(cat ${dir}/last-switched 2>/dev/null)" ]; then
+      echo "seed-deploy: no change ($new runs, boots and was switched here): nothing switched"
+    else
+      nixos-rebuild switch --flake "$repo/nixos#${cfg.host}" || fail switch
+      echo "$new" > ${dir}/last-switched
+    fi
     echo "$(date +%s) $rev" > ${dir}/last-success
     metric 1 done
     echo "seed-deploy: done, $rev"

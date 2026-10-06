@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# site-sweep: the site agents' hourly look at what no alert may tell them (20261004: some of the
+# site's problems raise no alert). Read-only.
+# Run in full by the periodic task on its first run of each hour (minute 0-9), and whenever in doubt; --quick on
+# every other periodic task (below). Prints one line per
+# finding, "ok: ..." lines for what it checked, and exits 0; a check it could not run is a finding ("UNCHECKED"): a query
+# that fails, a series that is missing, a host that does not answer (never "ok" for a check not run: Codex, 20261004).
+#   1. Prometheus (infra): every alert firing, those routed to the hosted topic included (agents can't read that
+#      topic); and every producer's age (a quiet producer is a blind spot)
+#   2. each box: failed systemd units (agent box, infra's NixOS-less Unraid has none: its containers instead, core,
+#      site2), and a pending reboot
+#   3. infra's storage: datasets near their quota, the pool's health
+#   4. drift: ns1's zone, the router, the firewall (as their metrics say)
+set -uo pipefail
+ssh_() { ssh -o BatchMode=yes -o LogLevel=ERROR -o ConnectTimeout=10 "$@"; }
+Q() {  # Q <promql>: value lines "labels value" from Prometheus on infra; fails (1) if the query didn't answer "success"
+  local j; j=$(ssh_ root@192.168.1.10 "curl -sf -m 20 --get 127.0.0.1:9090/api/v1/query --data-urlencode $(printf %q "query=$1")") || return 1
+  jq -e '.status == "success"' >/dev/null 2>&1 <<<"$j" || return 1
+  jq -r '.data.result[] | "\(.metric | del(.__name__) | to_entries | map("\(.key)=\(.value)") | join(",")) \(.value[1])"' <<<"$j"; }
+f=0; find() { echo "FINDING: $*"; f=$((f + 1)); }
+# QS <what> <promql>: Q, a failure or no series at all an UNCHECKED finding (a missing series is a check not run)
+# into $o (not a subshell: the finding must count)
+QS() { o=$(Q "$2") || { find "UNCHECKED: $1: the query failed"; return 1; }
+  [ -n "$o" ] || { find "UNCHECKED: $1: no series ($2)"; return 1; }; }
+# GONE <what> <metric> [<now>]: series of <metric> a day ago with none now (in <now>, default the metric): one missing
+# series must not hide behind the others' "ok" (Codex, 20261004); 1 if any is gone or the query failed
+GONE() { local g; g=$(Q "$2 offset 1d unless (${3:-$2})") || { find "UNCHECKED: $1: the query failed"; return 1; }
+  [ -z "$g" ] && return 0; while read -r l v; do find "UNCHECKED: $1: a series gone since yesterday: $l"; done <<<"$g"; return 1; }
+# --quick (every periodic task, 20261006: "check that the checks ran" between the hourly sweeps; the Tender test's
+# re-runs: a 30-minute fault between two :00 sweeps was missed): failed units and reboot flags on each box, and the
+# producers' ages, findings only (no "ok" lines), then one summary line. The full sweep stays hourly.
+QUICK=0; [ "${1:-}" = --quick ] && QUICK=1
+ok() { [ $QUICK = 1 ] || echo "ok: $*"; }
+[ $QUICK = 1 ] || echo "site-sweep $(date -u +%FT%TZ)"
+# 1. alerts and producers (no alert firing is an empty answer, not a missing series; --quick: the intake shows alerts)
+if [ $QUICK = 1 ]; then :
+elif a=$(Q 'ALERTS{alertstate="firing",alertname!="Watchdog"}'); then
+  if [ -n "$a" ]; then while read -r l v; do find "alert firing: $l"; done <<<"$a"; else ok "no alert firing but the Watchdog"; fi
+else find "UNCHECKED: Prometheus on infra did not answer"; fi
+for m in seed_metrics_last_run_timestamp_seconds seed_core_metrics_last_run_timestamp_seconds seed_watcher_last_run_timestamp_seconds; do
+  QS "producer $m" "$m" || continue; n=$f; GONE "producer $m" "$m"
+  while read -r l v; do age=$(( $(date +%s) - ${v%.*} )); [ $age -gt 1800 ] && find "producer $m ($l) last ran $((age / 60)) min ago"; done <<<"$o"
+  [ $f = $n ] && ok "producer $m ran within 30 min"
+done
+# 2. each box: failed units, a pending reboot. No pipeline runs remotely: the raw lists come back, each closed by a
+# marker printed only if its command succeeded, and are read here (a missing marker: that check not run)
+if u=$(systemctl --failed --no-legend --plain); then u=$(awk '{print $1}' <<<"$u" | tr '\n' ' ')
+  [ -n "${u// }" ] && find "agent box: failed units: $u" || ok "agent box: no failed units"
+else find "UNCHECKED: agent box: systemctl --failed"; fi
+if kb=$(readlink -e /run/booted-system/kernel) && kc=$(readlink -e /run/current-system/kernel); then
+  [ "$kb" != "$kc" ] && find "agent box: runs an older kernel than it has installed: a reboot pending (ask-first: ask Christoph TODAY with site-notify, naming the cost, unless already asked and still owed)"
+else find "UNCHECKED: agent box: the booted and current kernels"; fi
+for b in "admin@192.168.1.12 core" "admin@100.64.0.12 site2"; do set -- $b
+  # the kernels: NixOS only (core is Debian: its /run/reboot-required says it); a failed read is KERNEL-UNREAD
+  r=$(ssh_ $1 'systemctl --failed --no-legend --plain && echo END-UNITS; [ -e /run/reboot-required ] && echo REBOOT-FLAG
+      if [ -e /etc/NIXOS ]; then if b=$(readlink -e /run/booted-system/kernel) && c=$(readlink -e /run/current-system/kernel); then
+        [ "$b" != "$c" ] && echo NEW-KERNEL; else echo KERNEL-UNREAD; fi; fi; true') \
+    || { find "UNCHECKED: $2 did not answer"; continue; }
+  if grep -qx END-UNITS <<<"$r"; then u=$(sed '/^END-UNITS$/,$d' <<<"$r" | awk '{print $1}' | tr '\n' ' ')
+    [ -n "${u// }" ] && find "$2: failed units: $u" || ok "$2: no failed units"
+  else find "UNCHECKED: $2: systemctl --failed"; fi
+  grep -qx REBOOT-FLAG <<<"$r" && find "$2: asks for a reboot (/run/reboot-required) (ask-first: ask Christoph TODAY with site-notify, naming the cost, unless already asked and still owed)"
+  grep -qx KERNEL-UNREAD <<<"$r" && find "UNCHECKED: $2: the booted and current kernels"
+  grep -qx NEW-KERNEL <<<"$r" && find "$2: runs an older kernel than it has installed: a reboot pending (ask-first: ask Christoph TODAY with site-notify, naming the cost, unless already asked and still owed)"
+done
+if [ $QUICK = 0 ]; then   # the containers, the storage and the drift: the full sweep only
+# containers stopped on purpose (retired, kept for the record): not findings
+RETIRED=" adguard "   # AdGuard Home, retired at rung 5 › F (Technitium is the site's DNS; site/dns/adguard-archive)
+if r=$(ssh_ root@192.168.1.10 "docker ps -a --filter status=exited --filter status=dead --format '{{.Names}}' && echo END-DOCKER") && grep -qx END-DOCKER <<<"$r"; then
+  c=$(for n in $(sed '/^END-DOCKER$/d' <<<"$r"); do [[ $RETIRED == *" $n "* ]] || printf '%s ' "$n"; done)
+  [ -n "${c// }" ] && find "infra: containers not running: $c" || ok "infra: every container running"
+else find "UNCHECKED: infra's containers"; fi
+# 3. storage
+if QS "datasets' quotas" 'seed_zfs_dataset_used_bytes / seed_zfs_dataset_quota_bytes'; then n=$f
+  GONE "datasets' quotas" seed_zfs_dataset_quota_bytes 'seed_zfs_dataset_used_bytes / seed_zfs_dataset_quota_bytes' 
+  while read -r l v; do awk "BEGIN{exit !($v > 0.8)}" && find "dataset near its quota: $l at $(awk "BEGIN{printf \"%d\", $v*100}")% (freeing space or changing the quota is ask-first: ask Christoph TODAY with site-notify, naming the cost)"; done <<<"$o"
+  [ $f = $n ] && ok "every dataset with a quota under 80%"; fi
+if QS "pool health" 'seed_zpool_healthy'; then n=$f; GONE "pool health" seed_zpool_healthy
+  while read -r l v; do [ "$v" = 1 ] || find "pool not healthy: $l"; done <<<"$o"
+  [ $f = $n ] && ok "every pool healthy"; fi
+# 4. drift: each source on its own (one missing must not hide behind the others)
+for m in seed_dns_drift_records seed_router_config_drift_lines seed_firewall_config_drift_lines; do
+  QS "drift $m" "$m" || continue; n=$f; GONE "drift $m" "$m"
+  while read -r l v; do [ "$v" = 0 ] || find "drift: $m $l: $v"; done <<<"$o"
+  [ $f = $n ] && ok "$m 0"
+done
+fi
+if [ $QUICK = 1 ]; then echo "site-sweep --quick $(date -u +%H:%MZ): $f finding(s) (units, reboot flags, producers)"; else echo "site-sweep: $f finding(s)"; fi

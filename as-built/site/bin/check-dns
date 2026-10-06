@@ -2,7 +2,9 @@
 # Drift check (R1.27/R1.28, R5.09): the site's DNS against dns/rewrites.yaml. From rung 5 › F (20260929) the
 # site's DNS is Technitium only (AdGuard retired; site/dns/adguard-archive): its configuration against the
 # repository (dns/technitium/push check: settings, zones, records, the router's user), and what ns1 (core,
-# 192.168.1.15) and ns2 (infra's container, 192.168.1.16) answer, over DNS, for every name in the list, plus
+# 192.168.1.15) and ns2 (infra's container, 192.168.1.16) answer, over DNS, for every name in the list AND every
+# name in the zone (its A records listed through ns1's API, `push names`: a name added outside the list is asked too
+# and shows as a difference; 20261006, the Tender test's re-runs: the old check asked the list's names only), plus
 # the filtering (a known ad domain -> 0.0.0.0). Exit 1 on any difference.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -15,9 +17,16 @@ rc=0
 if out=$(dns/technitium/push check 2>&1); then echo "dns technitium: configuration = repository ($(tail -1 <<<"$out"))"
 else echo "dns technitium: DRIFT"; grep -E 'DIFFERS|Error|error' <<<"$out"; rc=1; fi
 DIG=$(nix-shell -p dnsutils --run 'command -v dig' 2>/dev/null)
+# the names to ask: the list's and the zone's (an extra name in the zone, answered, is a difference below)
+# each asked of ns1 and ns2 directly, by address, +norecurse: their own zone data, never a cache (20261006: f3's
+# verification through the agent box's caching resolver still saw a record that was gone)
+if zone=$(dns/technitium/push names 2>/dev/null); then names=$(sort -u <(cut -d' ' -f1 <<<"$want") <(cut -d' ' -f1 <<<"$zone"))
+  nz=$(grep -c . <<<"$zone")
+else echo "dns technitium: the zone could not be listed (push names failed): only the list's names asked"; rc=1
+  names=$(cut -d' ' -f1 <<<"$want"); nz='?'; fi
 for s in ns1:192.168.1.15 ns2:192.168.1.16; do
-  have=$(while read -r d a; do printf '%s %s\n' "$d" "$($DIG +short +time=3 +tries=2 @${s#*:} $d A | grep -v '^;' | sort | tr '\n' ' ' | sed 's/ $//')"; done <<<"$want")
-  if diff <(echo "$want") <(echo "$have") >/dev/null; then echo "dns ${s%%:*}: Technitium answers exactly rewrites.yaml ($(echo "$want" | wc -l) names, over DNS)"
+  have=$(while read -r d; do a=$($DIG +short +norecurse +time=3 +tries=2 @${s#*:} $d A | grep -v '^;' | sort | tr '\n' ' ' | sed 's/ $//'); [ -n "$a" ] && printf '%s %s\n' "$d" "$a"; done <<<"$names")
+  if diff <(echo "$want") <(echo "$have") >/dev/null; then echo "dns ${s%%:*}: Technitium answers exactly rewrites.yaml ($(echo "$want" | wc -l) names; the zone's $nz A records asked too, over DNS)"
   else echo "dns ${s%%:*}: DRIFT (< repo, > answers)"; diff <(echo "$want") <(echo "$have") || true; rc=1; fi
   f=$($DIG +short +time=3 +tries=2 @${s#*:} doubleclick.net A | grep -v '^;')
   [[ $f == 0.0.0.0 ]] && echo "dns ${s%%:*}: filtering on (doubleclick.net -> 0.0.0.0)" || { echo "dns ${s%%:*}: filtering OFF (doubleclick.net -> '$f')"; rc=1; }

@@ -20,6 +20,8 @@
 # look like one: 8 or more characters with letters and digits, or 20 or more (a note that is a date, or a
 # field that is a word, would otherwise redact every date and that word everywhere). Passwords, TOTP
 # seeds, hidden fields, .env values and dead values count whole and in every piece of 6 or more.
+# Refused by shape as well, whatever the vaults hold: an age secret key (AGE-SECRET-KEY-1…). Redacted, and the export
+# fails, so a person looks first.
 # Prints counts per file only, never a value. Checks that every line of every JSON output still parses,
 # and that no secret or piece is left in the export outside the [redacted:...] marks (residual 0; a label
 # may itself contain a piece, e.g. an item named after its bucket). Exit 1 otherwise, and
@@ -79,18 +81,25 @@ for v, label in secrets.items():
     for form in (v, e1, e2): forms.setdefault(form, label)
 for label in set(forms.values()): assert '"' not in label and '\\' not in label
 pat = re.compile('|'.join(re.escape(k) for k in sorted(forms, key=len, reverse=True)))
+# refusals by shape: a value the vaults don't hold (an old or rotated key, 20260930: the sops master key once reached a
+# transcript) is still recognised. It is redacted and the export fails, so a person looks before anything is pulled.
+refuse = re.compile(r'AGE-SECRET-KEY-1[023456789ACDEFGHJKLMNPQRSTUVWXYZ]{58}')
 def redact(text):
     n = 0
     def r(m):
         nonlocal n; n += 1; return f'[redacted:{forms[m.group(0)]}]'
-    return pat.sub(r, text), n
+    # the shape first: a vault match inside a key would break the shape and let it through (Codex's review)
+    k = len(refuse.findall(text))
+    out = pat.sub(r, refuse.sub('[redacted:refused:age-secret-key]', text))
+    return out, n + k, k
 files = [(p, os.path.basename(p)) for p in sorted(glob.glob(f'{H}/.orch/turn-*.json') + glob.glob(f'{H}/.orch/turn-*.err'))]
 files += [(p, 'transcripts/' + os.path.relpath(p, f'{H}/.claude/projects')) for p in sorted(glob.glob(f'{H}/.claude/projects/**/*.jsonl', recursive=True))]
 bad = 0; total = 0
 print(f'secrets: {len(secrets)} values and pieces from {len(json.load(open(f"{tmp}/hosted.json")))} hosted and {len(json.load(open(f"{tmp}/site.json")))} site items, the .env files and {len(dead_f)} dead value(s); {len(forms)} forms matched')
 for src, rel in files:
     text = open(src, encoding='utf-8', errors='surrogateescape').read()
-    out, n = redact(text); total += n
+    out, n, k = redact(text); total += n
+    if k: bad = 1; print(f'{rel}: REFUSED: {k} age secret key(s) by shape (redacted; the export fails)')
     dst = os.path.join(X, rel); os.makedirs(os.path.dirname(dst), exist_ok=True)
     with open(dst, 'w', encoding='utf-8', errors='surrogateescape') as fh: fh.write(out)
     os.chmod(dst, 0o600)

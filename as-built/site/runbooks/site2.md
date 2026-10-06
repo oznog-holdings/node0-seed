@@ -1,7 +1,7 @@
 # site2: the second site (rung 5, phase E)
 
-**Status:** built 20260929: replicating hourly, monitored. **The restore test hasn't run:** it
-needs infra powered off, so the owner and a window (planned for 20260930, below).
+**Status:** built 20260929: replicating hourly, monitored. **The restore test (R5.15) passed on 20260929**, with
+infra powered off (below; evidence/20260929-r515/README.md).
 
 rung-5: "a second site that receives an hourly, one-way, encrypted replica of the datasets that
 matter".
@@ -17,11 +17,16 @@ matter".
 - **Access:** `ssh admin@100.64.0.12` with the builder's key (the orchestrator's key is there
   too, as the lab fixture). Its host key is ED25519
   SHA256:HOST-KEY-FINGERPRINT-PLACEHOLDER, checked on first connect.
-- **Deploys:** `tools/site2-deploy.sh test|switch|boot [ref]`, by default from the forge's
-  `deploy` (promoted like every host; the build check builds site2).
-  - The `nixos/` tree is copied to `/var/lib/seed-src` and built on site2 itself, because site2's
-    admin isn't a Nix trusted user.
-  - `test` first for anything that touches the network or ssh: a reboot undoes it.
+- **Deploys:** `tools/site2-deploy.sh dry-run|test|confirm|status [ref]`, by default from the promoted `deploy` branch,
+  built on site2 itself. site2 is remote-only, so a change never lands without a way back that needs nothing from us
+  (20261004):
+  - `dry-run` builds and shows what would change;
+  - `test` arms a self-reverting timer first (an absolute UTC deadline, `REVERT_MIN`, default 15 minutes, back to the
+    boot default's system), then activates without making it the boot default;
+  - `confirm`, after checking site2 healthy (ssh over the tailnet, no failed units, tailscaled/sshd/node-exporter/
+    networkd active, the pool ONLINE, Prometheus up=1, no new alerts), stops the timer and makes it the boot default;
+    without it, the timer reverts.
+  - Run by the builder, the orchestrator, or the site agents (in Tender's scope since 20261004, Christoph).
 
 **What's replicated:** `data/documents`, `data/finance`, `data/photos` and `data/appdata`. appdata
 holds the apps' nightly dumps (seed-dumps.sh: Vaultwarden, Forgejo dump and bundles, Postgres) and
@@ -71,7 +76,19 @@ the forge's own data.
    - **ReplicaSnapshotsStale:** infra's hourly job.
    - **TargetDown** for site2 itself.
 
-## The restore test (R5.15): planned, not run
+## The restore test (R5.15): passed 20260929, with infra off
+
+**Result** (evidence/20260929-r515/README.md):
+- **Infra off:** a clean powerdown from 09:22:46Z, confirmed from the agent box at 09:25:09Z (no ping, offline on
+  the tailnet, no ssh).
+- **Steps 2 to 4 ran from site2 alone, 09:25 to 09:30Z:**
+  - documents restored, all 23 files identical by hash (the marker included), and the Forgejo dumps 23/23;
+  - Forgejo ran on site2 from the appdata replica: `/api/healthz` passed at 09:27:42Z;
+  - `git ls-remote` from the agent box showed the snapshot's refs (main 3f2cabd, deploy cee23db).
+- Cleaned up, and infra powered back on at 09:29:32Z.
+
+The procedure, as it was run:
+
 
 **The gate:** with infra powered off (the owner or orchestrator does the power, and pauses the
 dead-man first, `tools/healthchecks-window.sh pause`), from site2 alone:

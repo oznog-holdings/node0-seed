@@ -17,6 +17,10 @@ wipe with that key can be undone within 30 days.
 **What still fails.** Everything lives on the laptop, so everything stops when it closes,
 and the backup runs only while it is open. [Rung 1](../1-infra/) fixes that.
 
+**Built by an agent.** Keel, an agent working from a brief, built every rung of the Seed,
+starting from this laptop. [The agents](../../agents/) page says how it worked and what kept it
+in bounds.
+
 Stop here if what you need is "my important files survive my laptop". Rung 0 does that.
 
 ## Decisions and options

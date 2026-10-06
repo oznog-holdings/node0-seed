@@ -39,6 +39,10 @@ infra. With infra down you keep names, time, alerts and the agent box, but you c
 the site's configuration. The switch, the consumer router, the UPS and every application on
 infra are still single, which is what the second site and the backups exist for.
 
+**The agents' alerts start here.** Tender's alert intake reads core's ntfy topic. Core's
+critical alerts go to both this topic and the hosted one, so the owner hears of core's own
+absence and the agent sees everything else ([the agents](../../agents/)).
+
 Stop here if losing the infra box should cost you a notification and a pause in its
 applications, but never the house's names, time and alerts.
 

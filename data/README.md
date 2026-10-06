@@ -1,6 +1,6 @@
 # Data
 
-What we measured on the bench from 20260923 to 20260928, with the conditions each figure was
+What we measured on the bench from 20260923 to 20261006, with the conditions each figure was
 taken under. Every row gives its conditions, so you can compare your own box to it.
 
 ## Memory (rung 1)
@@ -99,3 +99,11 @@ fully charged throughout.
   draw about 23 W at rest, so the agent box draws at most about 16 W.
 - About 55 W with the spare plugged in is about 480 kWh a year; the site alone, about 49 W, is about 430 kWh. Multiply by your price per kWh.
 - The router and the switch are on the wall and not measured.
+
+## Agent models and the utility tier (rungs 4 and 4b, 20260930 to 20261002)
+
+- [`rung4/agent-models-20261002.md`](rung4/agent-models-20261002.md): Qwen3.8-27B, Qwen3.6-35B-A3B
+  and Ternary Bonsai 2 as the site agent's model on the compute Mac: speed, correctness on the
+  site's faults, MTP, and the prompt cache.
+- The utility tier's memory budget and quality checks are on the [rung 4b](../rungs/4b-models/)
+  page; the agent test's grades are on [the agents](../agents/) page.

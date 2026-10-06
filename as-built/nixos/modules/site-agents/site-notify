@@ -1,0 +1,9 @@
+#!/bin/sh
+# site-notify [--urgent] "title" "message": post to the owner's phone on core's ntfy, topic seed-agents (the site
+# agents' own topic; the alert topic `seed` stays Alertmanager's). Plain text, no secrets (the rulebook).
+p=default; [ "${1:-}" = --urgent ] && { p=urgent; shift; }
+t=${1:?title}; m=${2:?message}
+# the token on curl's stdin (a config line), never its argv (20261003)
+printf 'header = "Authorization: Bearer tk_%s"\n' "$(cat /run/secrets/tender_ntfy_token)" | curl -fsS -m 15 -o /dev/null -K - \
+  -H "Title: $t" -H "Priority: $p" -H "Tags: ${SITE_AGENT:-tender}" -d "$m" https://ntfy.seed.example.com/seed-agents \
+  && echo "sent to the owner (seed-agents, $p)"

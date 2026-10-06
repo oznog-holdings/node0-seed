@@ -1,6 +1,7 @@
 This repository carries two licences, by directory. Copyright (c) 2026 Oznog Holdings LLC.
 
-  the writing and data: README.md, costs.md, pitfalls.md, rungs/, runbooks/,
-  decisions/, data/                                   CC BY 4.0   see LICENSE-content
+  the writing and data: README.md, costs.md, pitfalls.md, another-way-up.md,
+  rungs/, agents/, runbooks/, decisions/, data/,
+  images/ (photographs and screenshots)               CC BY 4.0   see LICENSE-content
   the configuration and code: templates/, as-built/,
   values.example.yaml                                 MIT         see LICENSE-code

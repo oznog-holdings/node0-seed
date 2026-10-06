@@ -36,7 +36,8 @@ prompts. A 12,452-token prompt took 84 s locally and 3.6 s hosted, so local suit
 private work. [Rung 4b](../4b-models/) puts a hosted coding model behind the local coding
 route as its fallback.
 
-Stop here if you want private inference and your agents already work well enough.
+Stop here if you want private inference for search, transcription and drafting, and your
+agents already work well enough. For a local *agent*, this tier is too slow (below).
 
 ## Decisions and options
 
@@ -71,16 +72,38 @@ near-lossless. A 3-bit quant, which existed only to fit the old 16 GiB ceiling, 
 faster. Twenty exact-answer tasks are too few to show what that quantisation loses, so its
 one extra point (19 against 18) decides nothing.
 
-**Retired 20260929.** GLM-4.7-Flash was stopped on the compute Mac on 20260929 to make room for
-Qwen3.8-27B, the local model for the site's long-running agent, where Qwen is the better fit for
-agentic work. Its configuration, pins, benchmarks and model file stay as this rung's record, and
-the figures below are what it measured.
+**Retired 20260929.** GLM-4.7-Flash was stopped that day to make room for an agent model
+(below). Its configuration, pins, benchmarks and model file stay as this rung's record, and the
+figures under Costs and measurements are what it measured.
 
-**Other models worth trying.** We chose GLM-4.7-Flash for parity with the hosted model, not as
-the best local model. In Christoph's own use, Qwen 3.8 has been one of the most capable local
-models, and [Bonsai 2](https://huggingface.co/collections/prism-ml/bonsai-2) does well at
-short tasks in very little memory, though not at long agentic work, programming or reasoning.
-Neither has been measured on the bench.
+**An agent model on this Mac was right, but too slow.** From 20260930 to 20261002 we ran the site's
+long-running agent on local models here, so its data would never leave the house. A 64 GB M1 Max
+could not give us one that was both right and quick enough. A dense model reads every weight for
+every token, so on this memory bandwidth it writes a few words a second. A mixture of experts is
+fast because it reads few of its weights, and on our faults it skipped the diagnosis.
+
+| model, on this Mac | speed | on the site's faults |
+|---|---|---|
+| Qwen3.8-27B, Q8_0 | 6.4 to 6.8 tokens/s writing; 63 to 100 reading; a full fault run 45 min | right, 36 to 47 minutes an incident |
+| Qwen3.6-35B-A3B (about 3B active), Q6 | 40.3 writing; 540 reading; the same run 7 min | fast, and wrong: it wrote "would have checked" instead of checking |
+| Ternary Bonsai 2 27B, 2-bit | 12.6 to 15.1 writing; 91 to 106 reading | slower than the 27B in practice: it reasoned for thousands of tokens a call |
+
+- **Speculative decoding with the model's own draft head (MTP) made both Qwen models slower**
+  on this chip, with 76 to 77% of drafted tokens accepted. The 27B ran 5.1 tokens/s with it
+  against 7.0 without, and needed 8 to 12 GiB more.
+- **A RAM prompt cache helps, and is small here.** An evicted 19k-token prompt came back in
+  0.3 s against 185 s cold. A saved prompt costs about 92 KiB a token, so only 2 GiB fit beside
+  the rest, enough for one agent's shared prompt and little more. Measure the cache's real size
+  with macOS's footprint, which counts compressed memory that the process size leaves out.
+- **What changed (20261002, Christoph).** The Mac stopped running agent models. The active
+  agent runs on a hosted model with redaction in front of it ([the agents](../../agents/)), and
+  the Mac became the utility box of [rung 4b](../4b-models/). On this class of Mac, a local agent model needs a GPU instead,
+  and the same test on one is coming.
+
+All figures 20260930 to 20261002, on the Seed's agent faults, from the bench's records
+([data/rung4](../../data/rung4/)).
+*Would change it:* a GPU with 24 GB or more, or a site whose data must never leave the house and
+can wait 40 minutes for a diagnosis.
 
 **A memory ceiling, enforced by a supervisor.**
 - Measure what the operating system needs with the model out, then set the ceiling below the

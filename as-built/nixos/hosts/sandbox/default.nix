@@ -23,12 +23,22 @@ let keys = import ../../keys.nix; in {
 
   users.mutableUsers = false;
   users.users.admin = {
-    isNormalUser = true; uid = 1000; group = "users"; extraGroups = [ "wheel" ];
+    isNormalUser = true; uid = 1000; group = "users"; extraGroups = [ "wheel" "libvirtd" ];
     openssh.authorizedKeys.keys = [ keys.builderAgent keys.compute keys.orchestrator ];
   };
   users.groups.agent.gid = 1001;
   users.users.agent = { isNormalUser = true; uid = 1001; group = "agent"; openssh.authorizedKeys.keys = [ keys.builderAgent ]; };
   users.users.root.openssh.authorizedKeys.keys = [ keys.builderAgent ];   # nixos-rebuild --target-host
+  # the site agents' rehearsal ground (briefs/agents.md › J): their account, root through sudo, VMs of its own
+  users.groups.tender.gid = 1002;
+  users.users.tender = { isNormalUser = true; uid = 1002; group = "tender"; extraGroups = [ "wheel" "libvirtd" ];
+    openssh.authorizedKeys.keys = [ keys.tender ]; };
+
+  # nested VMs (the host CPU is passed through; infra has kvm_intel nested=1). Bounded by the sandbox itself:
+  # 4 vCPUs, 16 GB, a 128 GB disk (site/runbooks/sandbox.md). Their networking is user-mode (passt), so no
+  # address range of their own appears anywhere: reach them through a forwarded port on the sandbox.
+  virtualisation.libvirtd = { enable = true; qemu = { runAsRoot = false; swtpm.enable = false; }; };
+  environment.systemPackages = with pkgs; [ virt-manager qemu_kvm passt cloud-utils ];
   security.sudo.wheelNeedsPassword = false;
 
   # the image: UEFI (OVMF on Unraid), one qcow2 disk; the image module lays out ESP + root

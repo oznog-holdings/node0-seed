@@ -168,3 +168,28 @@ tests:
         exp_alerts:
           - exp_labels: { severity: critical, repo: rest-agent, flow: machines }
             exp_annotations: { summary: "Backup rest-agent: newest snapshot is 8h 0m 0s old." }
+  - interval: 5m
+    input_series:
+      - series: 'seed_zfs_dataset_used_bytes{dataset="data/scratch",host="infra"}'
+        values: '100 1932735283x6'
+      - series: 'seed_zfs_dataset_quota_bytes{dataset="data/scratch",host="infra"}'
+        values: '2147483648x6'
+      - series: 'seed_reboot_required{host="agent",reason="kernel"}'
+        values: '0 1x20'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: DatasetNearQuota
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: DatasetNearQuota
+        exp_alerts:
+          - exp_labels: { severity: warning, dataset: data/scratch, host: infra }
+            exp_annotations: { summary: "data/scratch is at 90% of its quota." }
+      - eval_time: 50m
+        alertname: RebootRequired
+        exp_alerts: []
+      - eval_time: 70m
+        alertname: RebootRequired
+        exp_alerts:
+          - exp_labels: { severity: warning, host: agent, reason: kernel }
+            exp_annotations: { summary: "agent needs a reboot (kernel): a reboot is ask-first (some boxes have no remote console)." }

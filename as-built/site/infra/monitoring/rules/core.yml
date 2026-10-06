@@ -51,3 +51,14 @@ groups:
         for: 1h
         labels: { severity: warning }
         annotations: { summary: "core publishes no restore rehearsal result at all." }
+      # ns1's zone against the repository (seed-core-metrics, seed-dns-drift; 20261004)
+      - alert: DnsDrift
+        expr: seed_dns_drift_records{host="core"} > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "ns1's zone {{ $labels.zone }} differs from the repository by {{ $value }} record(s): site/bin/check-dns shows them; site/dns/technitium/push puts it back." }
+      - alert: DnsDriftUnknown
+        expr: seed_dns_drift_records{host="core"} < 0
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: "core can't compare ns1's zone {{ $labels.zone }} with the repository (seed-dns-drift fails): DNS drift is unwatched." }

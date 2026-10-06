@@ -1,10 +1,11 @@
 {
   # The site's NixOS hosts (index › Rung 2: "NixOS from the start, deployed from the site's own
-  # git forge"). Pinned: nixpkgs to agentvm's revision (26.05), disko to its release.
+  # git forge"). Pinned: nixpkgs to nixos-26.05 at 7fc6f2c (20260928; upgraded 20261004 from 1bc55b9 of 20260922,
+  # agentvm's revision, by the site agent in the Tender test's stage 4), disko to its release.
   description = "seed site: NixOS hosts";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/1bc55b9def8165e82073919945c3239903fe4dc2";
+    nixpkgs.url = "github:NixOS/nixpkgs/7fc6f2c20af09cdcaf48b92ec3121860139ec668";
     disko = {
       url = "github:nix-community/disko/v1.13.0";
       inputs.nixpkgs.follows = "nixpkgs";

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# site-pr: open a pull request from your branch into main, the sanctioned way (20261004: in the Tender test's stage 4 the
+# agent had no way to open one, and rightly wouldn't read its forge credential for the API). Like site-review: the
+# token stays here (read from its file onto curl's stdin), never in your hands, never on an argument.
+#   site-pr "<title>" [<body file>]     (the body on stdin if no file; your plan, what you checked)
+# Run it in your checkout, on your own branch, already pushed: <agent>/<anything> (claude/..., hermes/...). Into main
+# only. It prints the PR's number and link; if one is already open from that branch, it says so and prints that one.
+# It doesn't merge: merging into main is the owner's (the forge allows only the owner's and the builder's accounts),
+# and promotion to deploy too. Every call is logged in ~/.local/state/site-pr/<agent>.log.
+set +x   # never traced: `bash -x site-pr` would print the token (Codex, 20261004)
+set -euo pipefail
+agent=${SITE_AGENT:?SITE_AGENT not set}; F=https://git.seed.example.com/api/v1/repos/seed/seed-lab
+t=${1:?usage: site-pr "<title>" [<body file>]}; body=$( [ -n "${2:-}" ] && cat -- "$2" || cat )
+b=$(git branch --show-current); [ -n "$b" ] || { echo "site-pr: not on a branch" >&2; exit 64; }
+case $b in "$agent"/*) ;; *) echo "site-pr: your branch must be $agent/<name> (it is $b)" >&2; exit 64 ;; esac
+git fetch -q origin "$b" 2>/dev/null || { echo "site-pr: $b isn't on the forge: git push -u origin $b first" >&2; exit 1; }
+[ "$(git rev-parse HEAD)" = "$(git rev-parse "origin/$b")" ] || { echo "site-pr: your local $b differs from the pushed one: push it first" >&2; exit 1; }
+# curl's config (the token header) from a process substitution: stdin stays free for the request body
+api() { curl -sS -K <(printf 'header = "Authorization: token %s"\n' "$(cat /run/secrets/tender_forge_token)") -m 30 -H 'Content-Type: application/json' "$@"; }
+L=$HOME/.local/state/site-pr; mkdir -p -m 700 "$L"; log() { echo "$(date -u +%FT%TZ) $*" >> "$L/$agent.log"; }
+open_pr=$(api "$F/pulls?state=open&limit=50" | jq -r --arg h "$b" '[.[] | select(.head.ref == $h and .base.ref == "main")][0] | if . then "\(.number) \(.html_url)" else empty end')
+if [ -n "$open_pr" ]; then echo "site-pr: already open: #$open_pr"; log "already open from $b: #$open_pr"; exit 0; fi
+r=$(jq -n --arg t "$t" --arg b "$body" --arg h "$b" --arg a "$agent" \
+      '{base: "main", head: $h, title: $t, body: ($b + "\n\n(opened by site-pr for " + $a + ")")}' | api -X POST --data-binary @- "$F/pulls")
+n=$(jq -r '.number // empty' <<<"$r"); u=$(jq -r '.html_url // empty' <<<"$r")
+[ -n "$n" ] || { echo "site-pr: the forge refused: $(jq -r '.message // "no answer"' <<<"$r")" >&2; log "refused for $b: $(jq -r '.message // "?"' <<<"$r")"; exit 1; }
+echo "site-pr: opened #$n $u (from $b into main; merging is the owner's)"; log "opened #$n from $b: $t"

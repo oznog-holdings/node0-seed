@@ -1,6 +1,5 @@
 <?xml version="1.0"?>
 <opnsense>
-  <trigger_initial_wizard />
   <theme>opnsense</theme>
   <system>
     <optimization>normal</optimization>
@@ -777,6 +776,62 @@
             <shaper2 />
             <description>seed: LAN to guest refused (as rung 5: no lan-&gt;guest forwarding)</description>
           </rule>
+          <rule uuid="GENERATED-ID">
+            <enabled>1</enabled>
+            <statetype>keep</statetype>
+            <state-policy />
+            <sequence>40</sequence>
+            <action>reject</action>
+            <quick>1</quick>
+            <interfacenot>0</interfacenot>
+            <interface>wan</interface>
+            <direction>in</direction>
+            <ipprotocol>inet46</ipprotocol>
+            <protocol>TCP</protocol>
+            <icmptype />
+            <icmp6type />
+            <source_net>any</source_net>
+            <source_not>0</source_not>
+            <source_port />
+            <destination_net>(self)</destination_net>
+            <destination_not>0</destination_not>
+            <destination_port>seed_fw_admin_ports</destination_port>
+            <divert-to />
+            <gateway />
+            <replyto />
+            <disablereplyto>0</disablereplyto>
+            <log>1</log>
+            <allowopts>0</allowopts>
+            <nosync>0</nosync>
+            <nopfsync>0</nopfsync>
+            <statetimeout />
+            <udp-first />
+            <udp-multiple />
+            <udp-single />
+            <max-src-nodes />
+            <max-src-states />
+            <max-src-conn />
+            <max />
+            <max-src-conn-rate />
+            <max-src-conn-rates />
+            <overload />
+            <adaptivestart />
+            <adaptiveend />
+            <prio />
+            <set-prio />
+            <set-prio-low />
+            <tag />
+            <tagged />
+            <tcpflags1 />
+            <tcpflags2 />
+            <tcpflags_any>0</tcpflags_any>
+            <categories />
+            <sched />
+            <tos />
+            <shaper1 />
+            <shaper2 />
+            <description>seed: no admin (ssh, web) on the firewall from its WAN side</description>
+          </rule>
         </rules>
         <snatrules />
         <npt />
@@ -810,6 +865,25 @@
             <expire />
             <categories />
             <description>seed rung 6: private, link-local and tailnet (CGNAT) ranges, refused from guest and IoT</description>
+          </alias>
+          <alias uuid="GENERATED-ID">
+            <enabled>1</enabled>
+            <name>seed_fw_admin_ports</name>
+            <type>port</type>
+            <path_expression />
+            <proto />
+            <interface />
+            <counters>0</counters>
+            <updatefreq />
+            <content>22
+80
+443</content>
+            <password />
+            <username />
+            <authtype />
+            <expire />
+            <categories />
+            <description>seed: the firewall's own ssh and web (F-FW-GUI-WAN)</description>
           </alias>
         </aliases>
       </Alias>

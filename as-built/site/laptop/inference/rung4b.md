@@ -161,3 +161,39 @@ sampler on compute recorded every model process's resident size every 0.5 s.
 | fail-closed, backend held (supervisor `held`, no llama-server running) | local-chat, local-embed, local-rerank, local-stt: 500, not answered. The spend log for the window has 3 rows, and the only external one is local-code's fallback. The failed chat and embeddings rows carry the Mac's api_base. The failed rerank and speech requests write no row |
 | fallback, backend held | local-code: 200, answered by z.ai (api_base `https://api.z.ai/api/coding/paas/v4/`). Metered: a spend-log row, `glm-5.3-coding` success, at 05:15:43Z |
 | back after the hold | GLM loaded again 6.5 s after `held` was removed |
+
+## Qwen3.8-27B: the local chat model from 20260930 (the owner's decision)
+
+**What it is:** the site agent's model (Hermes), route `local-chat`, which fails closed. Long context matters more
+than peak speed. The full record is in `evidence/20260930-qwen38/README.md`.
+
+- **The model:** Qwen3.8-27B, official release (Apache-2.0).
+  - A hybrid: 16 of its 64 layers keep a KV cache (64 KiB per token at f16), the other 48 are linear attention.
+  - Native context 262,144 tokens.
+- **The build:** no official GGUF exists, so `build-qwen38.sh` builds one from the release with llama.cpp b11146's
+  converter and quantizer. Every source shard and the result are pinned by sha256.
+- **Q8_0 weights (27.7 GiB):** Q6_K was no faster (generation isn't bandwidth-bound here), so quality wins.
+- **The context, by measurement:** step by step with the embedding and reranker loaded beside it.
+
+  | KV | context | prompt tok/s | gen tok/s at depth | peak wired |
+  |---|---|---|---|---|
+  | f16 | 32k | 100 | 6.9 | 42.4 GB |
+  | f16 | 64k | 82 | 6.4 | 45.0 GB |
+  | **f16** | **128k** | 63 | **5.5** | 49.4 GB |
+  | q8_0 | 128k | 63 | 2.1 | 45.6 GB |
+  | q8_0 | 192k | 51 | 1.4 | 48.1 GB |
+  | q8_0 | 262k | 42 | 1.1 | 50.5 GB |
+
+  No step swapped or left normal pressure.
+- **Chosen: 131,072 tokens, one slot, f16 KV.**
+  - f16 and q8 scored the same (5/5) on five facts planted at 10 to 90% depth of 127k tokens, but q8 generated at
+    2.0 tokens/s against 6.7.
+  - f16 beyond ~128k passes Metal's limit.
+- **In the service**, with all four models loaded:
+  - 5.4 tokens/s at full depth;
+  - the tree peaked at 45,882 MiB, under the 49,152 MiB ceiling, which stays;
+  - wired memory reached 53.4 GB, at Metal's limit: the thin margin to watch. `MODELS_MAX=3` is the first step if
+    it ever bites.
+- **The probe:** it covers `local-chat`. Its staleness alert waits 60 minutes, because one full-context prompt holds
+  the one slot for ~34 minutes.
+

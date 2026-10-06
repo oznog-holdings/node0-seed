@@ -84,6 +84,18 @@ id technitium >/dev/null 2>&1 || useradd --system --home-dir /var/lib/technitium
 # the person's admin account logs in with a shell: the image's placeholder account (pi, renamed to admin by
 # the SSD build) has /usr/sbin/nologin until userconfig runs, which the build masks (20260928)
 [ "$(getent passwd admin | cut -d: -f7)" = /bin/bash ] || { usermod -s /bin/bash admin; log "admin's shell set to /bin/bash"; }
+# ...its keys, declared (20261002; until then by hand): from nixos/keys.nix, the source the NixOS boxes use. The
+# orchestrator (rigger-orchestrator@operator-laptop, a lab fixture: annex), both builders, compute, the site agents (tender).
+# Exactly these, in this order: anything else in the file is removed by the next apply.
+coreKeys=(orchestrator agentvmBuilder builderAgent compute tender)
+ak=$(for k in "${coreKeys[@]}"; do sed -n "s/^  $k = \"\(.*\)\";.*/\1/p" "$repo/nixos/keys.nix"; done)
+[ "$(printf '%s\n' "$ak" | grep -c '^ssh-ed25519 ')" = ${#coreKeys[@]} ] || { log "FAIL: not every key in nixos/keys.nix"; exit 1; }
+install -d -m 0700 -o admin -g admin /home/admin/.ssh
+printf '%s\n' "$ak" | put 0600 admin:admin /home/admin/.ssh/authorized_keys
+# ...and its sudo (the image's rule, declared): checked by visudo before it is put
+sd='admin ALL=(ALL) NOPASSWD: ALL'
+printf '%s\n' "$sd" | visudo -cqf - || { log "FAIL: the sudo rule doesn't parse"; exit 1; }
+printf '%s\n' "$sd" | put 0440 root:root /etc/sudoers.d/010-admin-nopasswd
 # ...and the image's "set up a valid user" ssh banner, which userconfig would also have removed
 if [ -e /etc/ssh/sshd_config.d/rename_user.conf ]; then
   rm -f /etc/ssh/sshd_config.d/rename_user.conf; systemctl reload ssh 2>/dev/null || true; log "removed the image's rename_user ssh banner"; fi
@@ -132,15 +144,24 @@ auth-users:
   - "alertmanager:$(sv NTFY_HASH_ALERTMANAGER):user"
   - "watcher:$(sv NTFY_HASH_WATCHER):user"
   - "power:$(sv NTFY_HASH_POWER):user"
+  - "tender:$(sv NTFY_HASH_TENDER):user"
+  - "orchestrator:$(sv NTFY_HASH_ORCHESTRATOR):user"
 auth-access:
   - "phone:seed:ro"
   - "alertmanager:seed:wo"
   - "watcher:seed:wo"
   - "power:seed:wo"
+  - "tender:seed:ro"
+  - "tender:seed-agents:wo"
+  - "phone:seed-agents:ro"
+  - "orchestrator:seed:ro"
+  - "orchestrator:seed-agents:ro"
 auth-tokens:
-  - "alertmanager:$(sv NTFY_TOKEN_ALERTMANAGER):alertmanager on infra"
   - "watcher:$(sv NTFY_TOKEN_WATCHER):the watcher on the agent box"
   - "power:$(sv NTFY_TOKEN_POWER):core's own power watch"
+  - "tender:$(sv NTFY_TOKEN_TENDER):the site agents on the agent box (read only; 20260930)"
+  - "orchestrator:$(sv NTFY_TOKEN_ORCHESTRATOR):the orchestrator (read seed and seed-agents only; 20260930)"
+$(for u in WATCHER POWER TENDER ORCHESTRATOR; do x=$(sv NTFY_PREV_$u); [ -n "$x" ] && printf '  - "%s:%s:the previous token, during a rotation only (tools/rotate-ntfy-tokens.sh)"\n' "${u,,}" "$x"; done)
 # a phone on iOS is woken through ntfy.sh (a poll request carrying a hash of the topic, never
 # the message), since Apple's push service only talks to ntfy.sh
 upstream-base-url: "https://ntfy.sh"
@@ -151,7 +172,7 @@ unset S
 # what runs on core (section 6 enables and starts these; the offline stage only enables them)
 units=(chrony prometheus-node-exporter technitium unattended-upgrades
        seed-deploy.timer seed-power-watch.timer seed-core-metrics.timer seed-cert.timer seed-restore-rehearsal.timer
-       seed-reminder-quarterly.timer seed-reminder-yearly.timer)
+       seed-reminder-quarterly.timer seed-reminder-yearly.timer seed-statuspage seed-statuspage-probe.timer)
 # offline stage (SEED_APPLY_OFFLINE=1): a new medium built from a chroot (site/core/ssd/README.md).
 # What fills the disk is done (sections 1-4). Enable what must run at its first boot (DNS, NTP,
 # ntfy, the firewall, the timers), get ntfy's certificate, and stop. The running system's steps

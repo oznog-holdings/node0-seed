@@ -1,0 +1,6 @@
+[Unit]
+Description=seed status page: its own probe, every minute
+[Timer]
+OnCalendar=*:*:30
+[Install]
+WantedBy=timers.target

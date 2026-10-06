@@ -12,6 +12,52 @@ MODEL_SHA256=8c0922b03326932a40315ce92bbee01cc836ad18664268019143c898bdd7dd0b   
 ALIAS=glm-4.7-flash
 # Rung 4b (rung4b.md): the other kinds, one model file per line: repo revision file sha256. install.sh
 # fetches and checks them; presets.ini names them.
+# Qwen3.8-27B (20260929, the owner's decision): the site agent's model, route local-chat. Qwen publishes no GGUF for it,
+# so it is built from the official release by build-qwen38.sh with this runtime's own converter and quantizer:
+QWEN38_REPO=Qwen/Qwen3.8-27B          # the official release (Apache-2.0); 18 BF16 shards, 55.6 GB, each checked against its LFS sha256
+QWEN38_REV=1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0
+QWEN38_CONVERTER=b11146               # llama.cpp tag (commit 7fe450e19305b828c199d602c23a8337aaa1f03b): convert_hf_to_gguf.py, torch 2.11.0
+QWEN38_BF16_FILE=Qwen3.8-27B-BF16.gguf
+QWEN38_BF16_SHA256=6d7546276b07ea65accb409183352b58afbc328c9da4b674e8ff112a2b2a668b   # 54657734080 bytes; the build's intermediate
+QWEN38_QUANT=Q8_0                     # 8.50 bits per weight: near-lossless, and no slower than Q6_K here (rung4b.md, Qwen3.8)
+QWEN38_FILE=Qwen3.8-27B-Q8_0.gguf
+QWEN38_SHA256=25195ce7296b95b95f59f7f2afca6041b58e87b1c877fa5b3af70f0261978f2a       # 29047084480 bytes (Q6_K, measured and not chosen: 0f16215662de000f54793abc4b507f3e20bac9ddd61527c51590e0c6c3861dae)
+# Qwen3.6-35B-A3B (20261001, item 12 stage 2, on trial as the site agent's model; presets.a3b.ini): unsloth's GGUF of the
+# official release, its MTP build (MTP head unused; evidence/20260930-qwen-speed-bench.md). install.sh doesn't fetch it yet.
+A3B_REPO=unsloth/Qwen3.6-35B-A3B-MTP-GGUF
+A3B_REV=5bc3e238d916f48a861bac2f8a1990a0e9b7e98d
+A3B_FILE=Qwen3.6-35B-A3B-UD-Q6_K_XL.gguf
+A3B_SHA256=35fce994cd36104a7dc1bd8a4bdf13778145664c00fdef6773aebc9246e5019c       # 32611711264 bytes (Hugging Face LFS oid)
+# Ternary Bonsai 2 27B (20261001, the owner's decision: tested after the A3B; presets.bonsai.ini), refetched from the pins
+# below and checked; it runs only on PrismML's fork, built under inference/prism/src (Metal, llama-server only).
+# Both deleted from compute 20261002 (the owner's decision, after item 12): refetch and rebuild from these pins
+BONSAI_REPO=prism-ml/Ternary-Bonsai-2-27B-gguf
+BONSAI_REV=b072e1d3b35a0a630cece372c2127528e0994386
+BONSAI_FILE=Ternary-Bonsai-2-27B-PQ2_0.gguf
+BONSAI_SHA256=3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1    # 7206168928 bytes
+PRISM_REPO=https://github.com/PrismML-Eng/llama.cpp
+PRISM_COMMIT=adfffbe41b2cabcd51fff326ab045662265062bb   # tag prism-b10743-adfffbe; cmake -DGGML_METAL=ON -DLLAMA_CURL=OFF Release
+# Qwen3.6-35B-A3B at 4 bit (20261002, the utility tier's general text model: local-text, presets.utility.ini)
+A3BQ4_REPO=unsloth/Qwen3.6-35B-A3B-GGUF
+A3BQ4_REV=a483e9e6cbd595906af30beda3187c2663a1118c
+A3BQ4_FILE=Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
+A3BQ4_SHA256=707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450     # 22360456160 bytes
+# The encoder service's models (encoders.py; ~/.local/share/seed/utility/models; its Python: utility/pyproject.toml + uv.lock)
+#   perplexity-ai/PII-Tracer d25c16f2e57e321f6d2527715c01df9112f956f5 (MIT)
+#   fastino/GLiNER2.5-Decide 5a7adf72a23b4d311abae6ce050d7f0012bb3416 (Apache-2.0)
+#   meta-llama/Llama-Prompt-Guard-2-86M a8ded8e697ce7c355e395a0df51f94adb4a2fd27 (the Llama 4 Community License, accepted by
+#     the owner, Meta's approval 20261002): model.safetensors e72017dbbe89c1232dcbc4a74ce0c389db5b468c42afd05850347b2a8c5f6b09,
+#     tokenizer.json 3e7e96867c2acdd575f0862c74822e05d1d15b93d9d9a4a2144b1ce83ae3339f (fetched with the vault's
+#     "huggingface read token")
+#   Qwen/Qwen3Guard-Gen-0.6B fada3b2f655b89601929198343c94cd2f64d93cc (Apache-2.0)
+#   protectai/deberta-v3-base-prompt-injection-v2 90c9989b1a342275dd0d1a95aad283c04e075671 (Apache-2.0, archived)
+#   (GLiNER2.5-Decide: on disk, not loaded unless ENCODERS_GLINER=1)
+# Its tools: uv 0.12.22 (sha256 5d714de0…a93ddd), gitleaks 8.30.1 darwin arm64 (sha256 b40ab0ae…aeb6a5)
+# Benched in item 12 stage 1 and deleted from compute 20261001 (the orchestrator's approval), recorded here to refetch:
+#   unsloth/Qwen3.8-27B-GGUF 4ca720788d1e01f1bff70c033e0d0028fd02e502 Qwen3.8-27B-UD-Q5_K_M.gguf 2de73110cb254cbf09b54b717578dadff12ef1194e7271527e68202f39ba4bfd
+#   prism-ml/Ternary-Bonsai-2-27B-gguf b072e1d3b35a0a630cece372c2127528e0994386 Ternary-Bonsai-2-27B-PQ2_0.gguf 3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1
+#     run with PrismML's llama.cpp fork, github.com/PrismML-Eng/llama.cpp at adfffbe41b2cabcd51fff326ab045662265062bb (Metal)
+#   lmstudio-community/Qwen3.8-27B-MLX-8bit 241ebb5f1d60b122fd653da658836a55feb9e2b0 (6 safetensors shards; mlx-lm 0.31.3; not benched)
 MODELS_4B="
 Qwen/Qwen3-Embedding-4B-GGUF f4602530db1d980e16da9d7d3a70294cf5c190be Qwen3-Embedding-4B-Q8_0.gguf b60ae5ce2dd6a0b77f82cadf21def1f310a3e10cde380ad0081b07a9d416949d
 ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF a02f48bb4f057028298c21fa033da2b30d7742d5 qwen3-reranker-0.6b-q8_0.gguf 22c9979ce4fbcdc5acdc310c6641c32797eff1aa980b8f7a2db8a8ea23429a48
@@ -23,7 +69,7 @@ CTX=65536                           # two slots of 32k tokens (dedicated Mac, 48
 PARALLEL=2
 CACHE_RAM_MIB=0                     # the server's prompt cache in RAM (default 8192 MiB) off
 SLEEP_IDLE_S=-1                     # no idle unload on the dedicated Mac (was 900 s beside a person)
-CEILING_MIB=49152                   # supervise.sh holds the server if its resident size passes this
+CEILING_MIB=49152                   # supervise.sh holds the server if its resident size passes this. 48 GiB; 52 GiB for the RAM prompt cache of 20260930, reverted the same day (the cache used memory this figure cannot see)
 YIELD_FREE=5                        # supervise.sh: stop the server below this system-wide free %, or off "normal" pressure. 20 until
                                     # 20260928: at the 48 GiB ceiling free is about 10% by arithmetic (64 - 48 - macOS 9.4), so 20 yielded
                                     # before the ceiling (rung 4b: a test of 8 GB more gave 19% and a yield, pressure normal). 5 is a backstop;
@@ -32,4 +78,8 @@ RESUME_FREE=60                      # ... and start it again at this free % (the
 CALM_S=900                          # ... after this many calm seconds
 LISTEN=192.168.1.20
 PORT=8080
-MODELS_MAX=3                        # the router: at most this many models loaded (the three Qwen models; glm-4.7-flash retired 20260929)
+MODELS_MAX=8                        # the router: at most this many loaded (the utility tier, 20261002: every model in presets.ini may be;
+                                    # memory, not this count, is what limits, and the supervisor holds it: ON_DEMAND below)
+ON_DEMAND="local-chat local-text"   # unloaded first, in this order, when the tree nears the ceiling or pressure rises (supervise.sh)
+SOFT_MARGIN_MIB=3072                # ...from CEILING_MIB - this; a busy one only past the ceiling itself or off normal pressure
+ENCODERS_PORT=8082                  # the encoder service beside the router (encoders.py), same address and key

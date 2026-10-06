@@ -6,9 +6,10 @@ tests:
     input_series:
       - series: 'seed_gateway_selftest_success{instance="infra"}'
         values: '1x3 0x8'
-      # succeeds at 0, 5, 10 min, then the backend stops answering (the timestamp stays at 600)
-      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra"}'
-        values: '0 300 600 600x10'
+      # the probed route (from 20261002 local-embed alone) succeeds at 0, 5, 10 min, then the backend stops answering
+      # (the timestamp stays at 600): stale after 20 min
+      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra",route="local-embed"}'
+        values: '0 300 600 600x14'
     alert_rule_test:
       - eval_time: 25m
         alertname: GatewaySelftestFailing
@@ -24,8 +25,13 @@ tests:
       - eval_time: 35m
         alertname: InferenceBackendStale
         exp_alerts:
-          - exp_labels: { severity: warning, instance: infra }
+          - exp_labels: { severity: warning, instance: infra, route: local-embed }
             exp_annotations: { summary: "No answer from compute (local-embed) through the gateway for 25m 0s. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+      - eval_time: 75m
+        alertname: InferenceBackendStale
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra, route: local-embed }
+            exp_annotations: { summary: "No answer from compute (local-embed) through the gateway for 1h 5m 0s. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
       - eval_time: 35m
         alertname: InferenceProbeNeverSucceeded
         exp_alerts: []
@@ -40,5 +46,5 @@ tests:
       - eval_time: 40m
         alertname: InferenceProbeNeverSucceeded
         exp_alerts:
-          - exp_labels: { severity: warning }
-            exp_annotations: { summary: "The inference probe has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }
+          - exp_labels: { severity: warning, route: local-embed }
+            exp_annotations: { summary: "The inference probe for local-embed has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }

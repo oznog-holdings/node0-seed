@@ -26,6 +26,8 @@ a private network.
 bench used its spare, a Chuwi LarkBox X with a 1 GbE and a 2.5 GbE port), or a purpose-built
 firewall appliance ($890). Put it on the UPS.
 
+![A screenshot of OPNsense's Firewall: Rules page with the GUEST interface selected and three rules: guest DNS to its own gateway on port 53, guest to private addresses refused, and guest to the internet allowed](../../images/opnsense-guest-rules.png "The guest network's rules in OPNsense, 20260930: DNS only from its own gateway, every private, link-local and tailnet address refused, then the internet. Three rules carry the whole guest policy.")
+
 **What still fails.** The switch, the UPS and the infra box are still single, and the firewall
 is now on every path in and out. The access point keeps its rung 5 configuration in the
 repository, so putting the router back at the edge is one command and two cables.

@@ -1,5 +1,5 @@
 # The model gateway and the rung-4 backend (R4.11). Producer: seed-metrics.sh section 8 on infra
-# (every 5 minutes, a real request through the gateway: an embedding from local-embed since 20260929), deployed before these rules (R1.80).
+# (every 5 minutes, real requests through the gateway, the embedder, local-embed, labelled route=), deployed before these rules (R1.80).
 # A deliberate yield on compute (its supervisor stops the model under memory pressure) also
 # stops the probe: on a dedicated Mac that is worth knowing, so it alerts like any outage.
 groups:
@@ -10,12 +10,14 @@ groups:
         for: 15m
         labels: { severity: warning }
         annotations: { summary: "The model gateway on infra fails its own self-test: every model behind it is unreachable." }
+      # From 20261002 only local-embed is probed (the chat models load on demand and swap: a probe would load one): stale
+      # after 20 minutes.
       - alert: InferenceBackendStale
         expr: (time() - seed_inference_last_success_timestamp_seconds) > 20 * 60
         labels: { severity: warning }
-        annotations: { summary: "No answer from compute (local-embed) through the gateway for {{ $value | humanizeDuration }}. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+        annotations: { summary: "No answer from compute ({{ $labels.route }}) through the gateway for {{ $value | humanizeDuration }}. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
       - alert: InferenceProbeNeverSucceeded
-        expr: absent(seed_inference_last_success_timestamp_seconds)
+        expr: absent(seed_inference_last_success_timestamp_seconds{route="local-embed"})
         for: 30m
         labels: { severity: warning }
-        annotations: { summary: "The inference probe has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }
+        annotations: { summary: "The inference probe for {{ $labels.route }} has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }

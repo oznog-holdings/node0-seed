@@ -7,22 +7,7 @@
 let
   user = "agent";
   home = config.users.users.${user}.home;
-  codexVersion = "0.156.1";
-  codex-bin = pkgs.stdenvNoCC.mkDerivation {
-    pname = "codex"; version = codexVersion;
-    src = pkgs.fetchurl {
-      url = "https://github.com/openai/codex/releases/download/rust-v${codexVersion}/codex-x86_64-unknown-linux-musl.tar.gz";
-      sha256 = "aff46539a83aff86e3c62c592bce2c50d95391f9df289afaf03a50c01d14533d";  # GitHub release asset digest
-    };
-    nativeBuildInputs = [ pkgs.makeBinaryWrapper ];
-    sourceRoot = ".";
-    dontStrip = true;
-    installPhase = ''
-      install -Dm755 codex-x86_64-unknown-linux-musl $out/bin/codex
-      wrapProgram $out/bin/codex --prefix PATH : ${lib.makeBinPath [ pkgs.ripgrep pkgs.bubblewrap ]}
-    '';
-    meta.mainProgram = "codex";
-  };
+  codex-bin = pkgs.callPackage ../pkgs/codex.nix { };   # shared with the site agents (tender)
   # nixpkgs' claude-code with the release manifest (checksum from downloads.claude.ai/claude-code-releases/<v>/manifest.json)
   claude-code-pinned = pkgs.claude-code.override {
     manifest = { version = "2.1.281"; platforms."linux-x64".checksum = "56fe3da88458465fb27d7e9299dddb3fead55750fb9c2de795f233b5eea6dce1"; };
@@ -51,7 +36,7 @@ in {
   };
 
   # Claude Code: account connectors off, merged into the agent's settings.json (the person's own
-  # choices in that file are kept). Codex: connectors ("apps") off, gpt-6-sol with medium
+  # choices in that file are kept). Codex: connectors ("apps") off, gpt-6.1-sol (needs 0.159+) with medium
   # reasoning, no update check; merged, never replaced by a failed or empty merge.
   # A service after the directories are mounted, not an activation script: activation runs
   # before the mounts, so it would write into the directory the bind mount then hides
@@ -71,7 +56,7 @@ in {
       install -d -o ${user} -g ${user} -m 0700 $d
       [ -s $f ] || : > $f
       if (set -o pipefail; ${pkgs.remarshal}/bin/remarshal -if toml -of json $f \
-          | ${pkgs.jq}/bin/jq '.model = "gpt-6-sol" | .model_reasoning_effort = "medium"
+          | ${pkgs.jq}/bin/jq '.model = "gpt-6.1-sol" | .model_reasoning_effort = "medium"
                                | .check_for_update_on_startup = false | .features.apps = false' \
           | ${pkgs.remarshal}/bin/remarshal -if json -of toml > $f.new) && [ -s $f.new ]; then
         mv $f.new $f

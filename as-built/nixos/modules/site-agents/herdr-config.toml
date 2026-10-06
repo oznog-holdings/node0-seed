@@ -1,0 +1,17 @@
+# tender's herdr (briefs/agents.md › C). Copied into ~tender/.config/herdr/config.toml by tender-config.service.
+# After a change: `herdr server reload-config`, then confirm the binding fires (a config that validates is not
+# one the running server has read).
+onboarding = false
+
+[keys]
+prefix = "ctrl+s"                      # not ctrl+b
+
+[ui]
+show_agent_labels_on_pane_borders = true
+agent_panel_sort = "spaces"
+
+[ui.toast]
+delivery = "herdr"                     # toasts shown inside herdr
+
+[experimental]
+allow_nested = false                   # no herdr inside a herdr pane

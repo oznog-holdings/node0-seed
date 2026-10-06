@@ -8,6 +8,16 @@ stays inside seed, and the ceiling was recalculated for a dedicated machine (bel
 
 ## What runs (all pinned in `pins`)
 
+**From 20260930 (the owner's decision): Qwen3.8-27B is the local chat model**, for the long-running site agent
+(Hermes), behind the gateway route `local-chat` (fails closed).
+- **Build:** Q8_0, built from the official release by `build-qwen38.sh` (Qwen publishes no GGUF; pins `QWEN38_*`).
+- **Serving:** one slot of **131,072 tokens** with an f16 KV cache and flash attention; loaded at start.
+- **Chosen by measurement:** the largest context that runs well. At a full 128k it generates 5.4 tokens/s, with no
+  swap and pressure normal, and all four models loaded in the router the tree peaked at 45,882 MiB, under the
+  48 GiB ceiling.
+- **The alternative:** a q8_0 cache reaches the native 262,144 tokens in memory, but generates at 1.1 tokens/s there.
+- Record: rung4b.md › Qwen3.8 and `evidence/20260930-qwen38/`.
+
 **From 20260929 (the owner's decision): GLM-4.7-Flash is retired.** The router serves the three Qwen
 models of rung 4b (embedding, reranker, speech-to-text), none loaded at start; `MODELS_MAX=3`. The gateway's
 `glm-4.7-flash-local`, `local-chat` and `local-code` routes went with it, and its memory (33,810 MiB for its
@@ -59,6 +69,14 @@ it's fast on this GPU. Its licence is permissive, and it comes from the same fam
 half (z.ai's GLM), which makes the local-vs-hosted comparison mean something. The quantisation
 follows from the ceiling. Under 16 GiB only Q3 fitted. Under 48 GiB it's Q8_0 (near-lossless):
 it's 8% slower than Q3, and the 20-task check can't see what Q3 loses.
+
+## From 20260930: two models, both resident
+Only the chat model (preset `local-chat`: Qwen3.8-27B, or the A3B on trial from 20261001; `presets.ini` links to
+`presets.27b.ini` or `presets.a3b.ini`) and the embedder, both loaded at start, `--models-max 2`: the router can never evict either. The
+reranker and speech-to-text run on the agent box (`nixos/modules/aux-inference.nix`).
+- **The RAM prompt cache was tried and reverted the same day.** At 6 GiB it brought an evicted prompt back in
+  0.3 s, but once full it took memory the tree's RSS didn't show, and pressure reached warn.
+- **The ceiling stays 48 GiB** (below). The details are in `evidence/20260930-qwen-ram-cache.md`.
 
 ## The ceiling: 48 GiB for the whole runtime (from 20260927, a dedicated Mac)
 
@@ -121,15 +139,17 @@ Each change is one line in `~seed/.local/state/seed/inference/events.log`; the c
 
 ## Monitoring (R4.11)
 
-Every 5 minutes infra's `seed-metrics.sh` (section 8) sends one real completion through the
-gateway, using the `monitoring-probe` key, which is allowed `seed-selftest` and `glm-4.7-flash-local`.
-It writes:
+Every 5 minutes infra's `seed-metrics.sh` (section 8) sends real requests through the gateway, one per
+route: `local-chat` (a short completion from Qwen3.8-27B) and `local-embed` (an embedding). It uses the
+`monitoring-probe` key, which is allowed `seed-selftest`, `local-chat` and `local-embed` (from 20260930;
+`glm-4.7-flash-local` until its retirement). It writes:
 - `seed_gateway_selftest_success`;
-- `seed_inference_probe_success`, `seed_inference_probe_duration_seconds`;
-- `seed_inference_last_success_timestamp_seconds`, which survives failed runs in a state file.
+- `seed_inference_probe_success{route=}`, `seed_inference_probe_duration_seconds{route=}`;
+- `seed_inference_last_success_timestamp_seconds{route=}`, which survives failed runs in a state file per route.
 
 The alerts are in `site/infra/monitoring/rules/inference.yml` (unit-tested):
-- **InferenceBackendStale:** no completion for 20 minutes. This covers a yield or a hold, which on
+- **InferenceBackendStale:** no answer for 20 minutes (60 for `local-chat`: one full-context prompt holds its one
+  slot for ~34 minutes, and the probe queues behind it). This covers a yield or a hold, which on
   a dedicated Mac should page too.
 - **GatewaySelftestFailing:** the gateway fails its own self-test.
 - **InferenceProbeNeverSucceeded:** the probe has never succeeded.

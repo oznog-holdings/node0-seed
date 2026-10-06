@@ -35,3 +35,20 @@ rule=ipv6-literal re:(?:fc00|fd00|fe80):: # the unique-local and link-local pref
 rule=secret-assignment re:password = secret\) # a comment saying which vault field holds the API secret; no value
 rule=secret-assignment re:TSIG_SECRET:\s+import # code testing whether the key was read from the vault, then the next line; no value
 rule=secret-assignment re:secret: password # prose in the firewall README listing what the export redacts; no value
+# the agents and the utility tier (added 20261006): code and tests that name or handle a secret, never a value
+rule=secret-assignment re:.*(?:hunter2pass|SECRET_TYPE|password_file:|\[SECRET:|\[PII:|Bearer %s|token=\$\(cat|DB_PASSWORD="\{sp\}"|password="can|--random-password|basic_auth|label\x27\]? ?[!=]= \x27secret|s\.get\(\x27label\x27\)|^\s*secret = |url = open\(URLF\)|apply_chat_template|_TOKEN=\$\(cat|sops\.secrets|secret scanner|typed placeholder|\x27generic-api-key\x27|seed-aws-key-id|-password\b).* # redactors, their tests with made-up values, and code that reads a secret from a file at run time; gitleaks checks values
+rule=ipv4-literal 8.8.8.8 # a public resolver address used as a test value in the redactor tests
+rule=email-address noreply@anthropic.com # the co-author trailer address in a commit message template
+rule=url-credential re:.*scheme://user:password@host.* # a rule description naming the shape it detects
+rule=ipv4-literal re:.*(?:version = "[0-9.]+"|files\.pythonhosted\.org|/packages/).* # package versions and download paths in a Python lock file
+rule=secret-assignment secret: read # a code comment in the transcript scanner, not a value
+rule=secret-assignment re:'?password_file: [\w./-]+ # a path to a secret file in a redactor test, not a value
+rule=secret-assignment 'TOKEN_LIMIT: 4096 # a model limit in a redactor test, not a secret
+rule=secret-assignment re:SECRET:[a-z-]+(?:\x23\d+)?\]? # the redactor's typed placeholder, which stands for a withheld value
+rule=secret-assignment re:f["'](?:password=.*) # redactor tests that build random made-up passwords at run time
+rule=ipv4-literal re:(?:1\.15\.1\.6|10\.4\.0\.35|12\.0\.0\.61|12\.0\.4\.66|12\.6\.3\.3|13\.0\.3\.0|13\.1\.1\.3|9\.24\.0\.43) # CUDA library versions listed in the encoders' Python lock file
+rule=ipv4-literal re:[\w.+-]+\.whl # Python wheel file names in the encoders' lock file
+rule=secret-assignment re:'(?:aws-access-token|private-key|seed-age-secret-key|seed-bearer-token|secret)': (?:'[a-z-]+'|continue|out\.append\(\(a) # the redactor's table of detector names to placeholder types, and its code, not values
+rule=secret-assignment secrets: gitleaks # a comment naming the secret scanner, not a value
+rule=secret-assignment token=AbC123xyz # a made-up token in a redactor bypass test
+rule=secret-assignment tokenize=False) # a tokenizer argument in the encoder service, not a secret

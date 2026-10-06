@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Technitium from the repository: see push.py. The admin passwords go vault -> environment -> python
-# (never argv, never a file). Usage: site/dns/technitium/push [check]
+# (never argv, never a file). Usage: site/dns/technitium/push [check|names]
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 . "${SEED_REPO:-/work/agent/seed-lab}/tools/vault-env.sh"   # the site vault (SEED_VAULT=hosted: break-glass)

@@ -18,7 +18,16 @@ inside it. Decrypt the pack with the passphrase in the hosted Bitwarden organisa
   reads back and decrypts. Refresh after a change to the repo, the vault's routine items, a host
   identity or the flash, and at least quarterly (core's quarterly reminder says so).
 
-## What the pack holds (see MANIFEST.txt for names and sha256; refreshed 20260927)
+## What the pack holds (see MANIFEST.txt for names and sha256; refreshed 20261006, both copies, each rehearsed)
+
+**The refresh of 20261006** (after the master key's rotation of 20260930), each stick plugged into infra alone:
+- **copy A:** `seed-recovery-20261006T1844Z.tar.gpg`, written 18:50:13Z, read back with the same sha256, 13/13 files
+  matching MANIFEST.txt, the bundle verifying (22 refs); the old pack of 20260928 deleted only after.
+  **Rehearsal (`tools/recovery-pack-rehearse.sh`) passed at 18:51:13Z:** the master key from the stick alone is the
+  current one, and it decrypted nixos/secrets/site2.yaml.
+- **copy B:** `seed-recovery-20261006T1943Z.tar.gpg`, written 19:49:26Z, read back the same, 13/13, 22 refs; the old
+  pack of 20260928 deleted after. **Rehearsal passed at 19:50:25Z,** the same way.
+- The packs' own README-RECOVERY.md is this page as it stood just before this note was added.
 
 - `repo/seed-lab.bundle`: the config repo of record (git bundle of every ref). `git clone
   seed-lab.bundle seed-lab` gives the whole site config (`site/`, `nixos/`) and the record.
@@ -26,10 +35,15 @@ inside it. Decrypt the pack with the passphrase in the hosted Bitwarden organisa
   rest-server repositories agent, agentvm, compute), the rest-server logins, and the B2 keys:
   **seed-restore-reader** (read-only: use it to restore), seed-writer, and seed-machines-writer.
   The B2 **admin** key is the owner's and is not here.
-- `secrets/master-key.txt`: the sops/age master key. (The pack of 20260927 holds the vault item's
+- `secrets/master-key.txt`: the sops/age master key. **Rotated 20260930** (the old one was exposed:
+  `evidence/20260930-master-key-rotation.md`). The master is now `age1...REPLACE-WITH-YOUR-AGE-RECIPIENT`.
+  **A pack made before 20260930 holds the retired key** (both copies were refreshed 20261006, above):
+  - it cannot open the current files, and could open only their older copies in its own bundle;
+  - refresh both copies (above), and don't keep the old sticks' packs.
+  (The pack of 20260927 holds the vault item's
   whole notes, and age rejects that file at line 1; take the key line first:
-  `grep '^AGE-SECRET-KEY-' master-key.txt > key.txt`.) It opens `nixos/secrets/agent.yaml` and
-  `site/core/secrets.age` in the bundle (`SOPS_AGE_KEY_FILE=master-key.txt sops -d …`,
+  `grep '^AGE-SECRET-KEY-' master-key.txt > key.txt`.) It opens `nixos/secrets/agent.yaml`,
+  `nixos/secrets/site2.yaml`, `site/core/secrets.age` and the router backups (`site/router/backup/*.age`) in the bundle (`SOPS_AGE_KEY_FILE=master-key.txt sops -d …`,
   `age -d -i master-key.txt …`).
 - `secrets/builder-vault-login.env`: the builder agent's Bitwarden API login (F-REBUILD-STATE).
 - `flash/boot.tar`: the Unraid flash (config, host keys, the container templates, and the licence
@@ -150,4 +164,5 @@ An hourly encrypted replica of data/{documents,finance,photos,appdata} lives on 
 100.64.0.12; site/runbooks/site2.md). If infra's data is lost, a recent copy of documents,
 finance, photos and the apps' dumps and forge data is there. Its key is the vault item `zfs site2
 replica key` (on this pack's list), and the sops file nixos/secrets/site2.yaml opens with the master
-key in this pack. Restoring from it was not yet rehearsed (R5.15).
+key in this pack. Restoring from it was rehearsed on 20260929 with infra powered off (R5.15, passed: documents
+23/23 by hash, the forge answering from the replica; evidence/20260929-r515/README.md; site/runbooks/site2.md).

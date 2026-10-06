@@ -25,7 +25,7 @@ let
   zfs = config.boot.zfs.package;
   syncKey = "/var/lib/syncoid/infra_ed25519";
 in {
-  imports = [ "${modulesPath}/profiles/qemu-guest.nix" ];
+  imports = [ "${modulesPath}/profiles/qemu-guest.nix" ../../modules/reboot-required.nix ];
 
   # --- the VM as it was handed over (qcow2 image, 20260927): grub on vda, ext4 root labelled nixos ---
   boot.loader.grub.device = "/dev/vda";
@@ -63,7 +63,10 @@ in {
   users.users.admin = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    openssh.authorizedKeys.keys = [ keys.builderAgent keys.orchestrator ];
+    # tender (the site agents) too, by its own key (Christoph, 20261004: site2 joins Tender's scope, so a site-wide
+    # change can be completed by the agent; the same account and rights the agents have on the other boxes, revoked by
+    # tools/site-agents-revoke.sh like the rest); deploys only through tools/site2-deploy.sh (a self-reverting timer)
+    openssh.authorizedKeys.keys = [ keys.builderAgent keys.orchestrator keys.tender ];
   };
   security.sudo.wheelNeedsPassword = false;
   # infra's host key, pinned (SHA256:HOST-KEY-FINGERPRINT-PLACEHOLDER, as on the agent box)

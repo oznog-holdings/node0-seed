@@ -14,6 +14,13 @@
   # owner's request (20260929) and declared here after the first window. Forced command: prints the cut-over
   # log, nothing else (restrict: no pty, no forwarding).
   cutoverLogReader = ''command="cat /var/tmp/seed-cutover/latest.log 2>/dev/null || echo no log yet",restrict ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY
+  # the site agents (tender: Hermes, Claude Code, Codex), from ~tender/.ssh on the agent box (20260930); the private
+  # key's copy is the vault item "tender ssh key". Revoke everywhere: tools/site-agents-revoke.sh
+  tender = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
+  # the owner's own machines: authorized for tender (the site agents' account) at his request, 20260930, so his herdr
+  # (herdr-mirror) can show and drive the agents' sessions. ownerMbp is the same key as cutoverLogReader's, unrestricted here
+  ownerMbp = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
+  ownerFwl = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
   # lab fixture, not part of the site: the orchestrator's key (annex). Remove at teardown.
   orchestrator = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
 }

@@ -1,0 +1,63 @@
+# The secret scanner's rules (encoders.py, /v1/secrets): gitleaks's own defaults, plus the site's. The bar is zero
+# secrets out (the orchestrator, 20261002). Written for this site, modelled on what our publication gate refuses
+# (tools/export-for-pull.sh); none of its values. PII-Tracer's "secret" class runs after this as a second layer.
+title = "seed: gitleaks defaults + the site's rules"
+
+[extend]
+useDefault = true
+
+[[rules]]
+# the two password rules leave a value starting with "[": the builder's redactor's placeholders ([REDACTED:value])
+# made three false alerts, 20261003 (a global allowlist did not apply under [extend])
+id = "seed-quoted-password"
+description = "A password, secret, token or key assigned a quoted value (yaml, json, shell, ini)"
+regex = '''(?i)(?:pass(?:word|wd|phrase)?|pwd|secret|api[_-]?key|access[_-]?key|token|auth(?:orization)?)["']?\s*[:=]\s*["']([^"'\s\[][^"'\s]{5,})["']'''
+secretGroup = 1
+keywords = ["pass", "pwd", "secret", "key", "token", "auth"]
+
+[[rules]]
+id = "seed-unquoted-password"
+description = "A password assigned an unquoted value of some entropy (password=..., password: ...)"
+regex = '''(?i)\b(?:pass(?:word|wd|phrase)?|pwd)\b\s*[:=]\s*([^\s"'<>{}\[][^\s"'<>{}]{7,})'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["pass", "pwd"]
+
+[[rules]]
+id = "seed-url-credentials"
+description = "Credentials inside a URL (scheme://user:password@host)"
+regex = '''\b[a-zA-Z][a-zA-Z0-9+.-]{1,20}://[^\s:/@"'<>]{1,64}:([^\s/@"'<>]{3,128})@[^\s/"'<>]+'''
+secretGroup = 1
+keywords = ["://"]
+
+[[rules]]
+id = "seed-aws-key-id"
+description = "An AWS-style access key id (also among the defaults; kept here so a change there can't drop it)"
+regex = '''\b((?:AKIA|ASIA|ABIA|ACCA|A3T[A-Z0-9])[A-Z2-7]{16})\b'''
+keywords = ["akia", "asia", "abia", "acca", "a3t"]
+
+[[rules]]
+id = "seed-age-secret-key"
+description = "An age secret key (the shape the publication gate refuses)"
+regex = '''AGE-SECRET-KEY-1[023456789ACDEFGHJKLMNPQRSTUVWXYZ]{58}'''
+keywords = ["age-secret-key-1"]
+
+[[rules]]
+id = "seed-bearer-token"
+description = "A bearer token in a header or a command line"
+regex = '''(?i)\bbearer\s+([A-Za-z0-9._~+/=-]{20,})'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["bearer"]
+
+[[rules]]
+id = "seed-provider-key-prefix"
+description = "Model-provider and payment keys by prefix, whatever their length (a key one character off the vendor's exact shape is still a key)"
+regex = '''\b((?:sk-ant-[a-z]{3}[0-9]{2}|sk-proj|sk-svcacct|sk_live|rk_live|sk-or-v1)[-_][A-Za-z0-9_-]{20,})'''
+keywords = ["sk-ant-", "sk-proj", "sk-svcacct", "sk_live", "rk_live", "sk-or-v1"]
+
+[[rules]]
+id = "seed-ntfy-token"
+description = "An ntfy access token (tk_ + 29 of [a-z0-9]): five were printed into the builder's output, 20261003"
+regex = '''\b(tk_[a-z0-9]{29})\b'''
+keywords = ["tk_"]

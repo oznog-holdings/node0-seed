@@ -102,6 +102,8 @@ so it took no VLANs. Rung 6 needs them for the access point's link.
 the radios are off between tests, with the configuration kept
 ([as built](../../as-built/site/router/wifi.md)).
 
+![A screenshot of OpenWrt's Wireless Overview in a dark theme: two MediaTek radios, then three networks named seed, seed-guest and seed-iot, each marked disabled, and an empty table of connected devices](../../images/openwrt-wireless-networks.png "The three networks in OpenWrt's wireless page, 20260930 (the router by then serving as rung 6's access point): main, guest and IoT, switched off between tests.")
+
 | network | who joins it | may reach | may not reach |
 |---|---|---|---|
 | main (trusted) | your own laptops and phones | everything a wired box on the LAN may, including the site's services by name | nothing extra |

@@ -36,6 +36,11 @@ the agent box stays up and its watcher still reports, but the house loses DNS an
 loses its models. [Rung 3](../3-core/) moves names, time and notifications off infra; model
 calls through infra's gateway still stop.
 
+**The agents that live here.** Keel, the building agent, moved onto this box from a VM on
+infra (runbook 4 below). Tender, the site agent, runs here too, in its own account. From this
+rung it can watch the site and report, and from [rung 4b](../4b-models/) it has the utility
+models its redaction needs. [The agents](../../agents/) page covers both.
+
 Stop here if your agent is the main thing you run, and a few minutes of DNS outage when infra
 restarts is fine.
 

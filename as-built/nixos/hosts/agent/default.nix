@@ -5,7 +5,7 @@
 { config, lib, pkgs, modulesPath, ... }:
 let keys = import ../../keys.nix; in
 {
-  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ../../modules/wifi-test.nix ];
+  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ../../modules/wifi-test.nix ../../modules/site-agents.nix ../../modules/selfcheck.nix ../../modules/keel-herdr.nix ../../modules/reboot-required.nix ];   # aux-inference.nix retired 20261002 (the reranker and speech back on compute)
 
   # deployed from the forge's `deploy` ref (modules/pull-deploy.nix); promotion = push main to deploy
   seed.pullDeploy = { enable = true; host = "agent"; };

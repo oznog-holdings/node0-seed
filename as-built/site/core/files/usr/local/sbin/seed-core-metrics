@@ -31,5 +31,12 @@ tf=/var/lib/prometheus/node-exporter; now=$(date +%s); o=$tf/seed-core.prom
     echo "# TYPE seed_cert_expiry_timestamp_seconds gauge"
     echo "seed_cert_expiry_timestamp_seconds{name=\"ntfy\"} $(date -d "$(openssl x509 -enddate -noout -in /etc/ntfy/tls/cert.pem | cut -d= -f2)" +%s)"
   fi
+  # (20261004) a reboot asked for (Debian's flag), and ns1's zone against the repository (seed-dns-drift: records extra plus missing; -1 if it can't tell)
+  echo "# HELP seed_reboot_required 1 if the host asks for a reboot (Debian: /run/reboot-required)."
+  echo "# TYPE seed_reboot_required gauge"
+  echo "seed_reboot_required{reason=\"$([ -e /run/reboot-required ] && echo reboot-required || echo none)\"} $([ -e /run/reboot-required ] && echo 1 || echo 0)"
+  echo "# HELP seed_dns_drift_records Records of ns1's zone seed.example.com that differ from the repository (-1: unknown)."
+  echo "# TYPE seed_dns_drift_records gauge"
+  echo "seed_dns_drift_records{zone=\"seed.example.com\"} $(/usr/local/sbin/seed-dns-drift 2>/dev/null || echo -1)"
   echo "# TYPE seed_core_metrics_last_run_timestamp_seconds gauge"; echo "seed_core_metrics_last_run_timestamp_seconds $now"
 } > $o.tmp && mv $o.tmp $o

@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# a bash wrapper around Python (20261004): the build check parses every core script with bash -n
+exec python3 - "$@" <<'PY'
+"""seed-dns-drift: how many records of ns1's zone seed.example.com differ from the repository (20261004: no rule
+watched for a drift of the zone). Read-only, on core, as root: the local Technitium API, logged in
+with core's own admin password (/etc/seed/technitium-admin), the zone listed, compared with what
+site/dns/technitium/push.py would want (an A record per host and service, NS ns1/ns2, the lan subzone's NS; the
+types it manages, A, NS and PTR, so an extra one of any counts), logged out.
+Prints one number: the records extra plus missing (0 = as the repository says), or -1 if it can't tell. The fix stays
+site/dns/technitium/push (from the builder, with the vault's passwords)."""
+import json, sys, urllib.parse, urllib.request
+import yaml
+REPO = '/var/lib/seed-deploy/repo'
+try:
+    N = yaml.safe_load(open(f'{REPO}/site/dns/rewrites.yaml'))
+    Z, H, S = N['zone'], N['hosts'], N.get('services') or {}
+    ns = [f'ns1.{Z}', f'ns2.{Z}']
+    bad = [k for k, h in S.items() if h not in H]
+    if bad: raise ValueError(f'services with unknown hosts: {bad}')   # push.py refuses this list: so does the check
+    want = {(f'{k}.{Z}', 'A', v) for k, v in H.items()} | {(f'{k}.{Z}', 'A', H[h]) for k, h in S.items()}
+    want |= {(Z, 'NS', n) for n in ns} | {(f'lan.{Z}', 'NS', n) for n in ns}
+    pw = open('/etc/seed/technitium-admin').read().strip()
+    def call(path, tok=None, **p):
+        req = urllib.request.Request('http://127.0.0.1:5380/api/' + path, urllib.parse.urlencode(p).encode(), method='POST',
+                                     headers={'Content-Type': 'application/x-www-form-urlencoded', **({'Authorization': f'Bearer {tok}'} if tok else {})})
+        with urllib.request.urlopen(req, timeout=30) as r: j = json.load(r)
+        if j.get('status') != 'ok': raise RuntimeError(f'{path}: {j.get("status")}')
+        return j.get('response', j)
+    tok = call('user/login', user='admin', **{'pass': pw})['token']
+    try:
+        have = set()
+        for x in call('zones/records/get', tok, domain=Z, zone=Z, listZone='true')['records']:
+            v = {'A': x['rData'].get('ipAddress'), 'NS': x['rData'].get('nameServer'), 'PTR': x['rData'].get('ptrName')}.get(x['type'])
+            if v is not None: have.add((x['name'], x['type'], v))
+    finally:
+        call('user/logout', tok)
+    print(len(have - want) + len(want - have))
+except Exception as e:
+    print(f'seed-dns-drift: {type(e).__name__}', file=sys.stderr); print(-1)
+PY

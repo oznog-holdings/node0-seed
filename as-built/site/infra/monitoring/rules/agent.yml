@@ -38,3 +38,9 @@ groups:
         expr: (time() - seed_build_check_last_attempt_timestamp_seconds) > 26 * 3600
         labels: { severity: warning }
         annotations: { summary: "The nightly build check has not run for {{ $value | humanizeDuration }}." }
+      # the redaction in front of the hosted model (site-redact, 20261002): it failed closed, so an agent's intake
+      # text is being withheld (it replays once redaction works). Producer: site-redact's textfile, every run
+      - alert: RedactionUnavailable
+        expr: seed_redaction_ok == 0
+        labels: { severity: critical }
+        annotations: { summary: "{{ $labels.host }}: redaction is unavailable (site-redact failed closed): the agents' intake text is withheld until it works." }

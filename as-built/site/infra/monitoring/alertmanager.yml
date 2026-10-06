@@ -5,7 +5,7 @@
 # delivery failing, go to the hosted topic instead: core's ntfy cannot carry the news of its
 # own absence (finding F-NOTIFY). The phone subscribes to both.
 # Secrets are read from files (/secrets, 0400, from the vault), never written here:
-# ntfy-core-token (vault "ntfy core alertmanager", tk_ + the value), ntfy-url (the hosted
+# ntfy-core-password (vault "ntfy core alertmanager password", tools/ntfy-alertmanager-password.sh), ntfy-url (the hosted
 # topic), healthchecks-ping-url.
 route:
   receiver: ntfy
@@ -43,6 +43,12 @@ route:
     # on core's ntfy, which works while those fire.
     - matchers: [host="core", alertname=~"TargetDown|ProbeFailing|Core.*"]
       receiver: ntfy-hosted
+      continue: true
+    # ...and the same to core's ntfy too (20261006, the Tender test's re-runs: f7's critical ProbeFailing reached the
+    # owner on the hosted topic but never the agents, who read core's topic only). While core is up, core's ntfy
+    # carries it to the agents; when core is down, the hosted topic still carries it to the owner.
+    - matchers: [host="core", alertname=~"TargetDown|ProbeFailing|Core.*"]
+      receiver: ntfy
     - matchers: [alertname="NotifierFailing"]
       receiver: ntfy-hosted
 
@@ -51,7 +57,9 @@ receivers:
     webhook_configs:
       - url: https://ntfy.seed.example.com/seed?template=alertmanager
         http_config:
-          authorization: { credentials_file: /secrets/ntfy-core-token }
+          # basic auth, not its token (20261003): ntfy 2.28's token path failed some concurrent publishes with 403
+          # (Alertmanager sends each group in the same second, and drops a 4xx); basic auth: none in 200
+          basic_auth: { username: alertmanager, password_file: /secrets/ntfy-core-password }
         send_resolved: true
   - name: ntfy-hosted   # ntfy.sh, unguessable topic (rungs 1 and 2; from rung 3 the fallback)
     webhook_configs:

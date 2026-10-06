@@ -13,13 +13,15 @@ Records are synced one by one: missing ones added, extra ones deleted by exact v
 `ptr` flag is never used: it treats PTR as a replace, so deleting one record would delete the reverse
 entry of every other record at that address (design › DNS). Reverse records are a zone of their own.
 
-Usage: push [check]   (check: compare only, change nothing; exit 1 on any difference)
+Usage: push [check|names]   (check: compare only, change nothing; exit 1 on any difference.
+       names: list the zone's A records on ns1, "name address" per line, read-only: site/bin/check-dns asks every
+       name in the zone over DNS, so a name added outside the list is seen, 20261006)
 """
 import json, os, secrets, sys, urllib.parse, urllib.request
 import yaml
 
 os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
-CHECK = sys.argv[1:] == ['check']
+CHECK = sys.argv[1:] == ['check']; NAMES = sys.argv[1:] == ['names']
 N = yaml.safe_load(open('site/dns/rewrites.yaml'))
 ZONE, HOSTS, SERVICES = N['zone'], N['hosts'], N.get('services') or {}
 LAN, REV = 'lan.' + ZONE, '1.168.192.in-addr.arpa'
@@ -225,6 +227,10 @@ def ddns_user(t):
 
 def main():
     core = Tech('ns1 (core)', PRIMARY, os.environ['TECHNITIUM_PW_CORE'])
+    if NAMES:   # read-only: the zone as ns1 holds it (A records), nothing else asked or changed
+        try: rows = sorted(f'{n} {v}' for n, typ, v in records(core, ZONE) if typ == 'A')
+        finally: core.logout()
+        print('\n'.join(rows)); sys.exit(0)
     infra = Tech('ns2 (infra)', SECONDARY, os.environ['TECHNITIUM_PW_INFRA'])
     try:
         settings(core, 'primary'); settings(infra, 'secondary')

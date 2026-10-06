@@ -96,32 +96,49 @@ done
 # 6. UPS: moved to seed-ups-metrics.sh (every 10 s; 20260928), so the power alert can fire inside a
 #    fast shutdown. Not written here: two files with the same series would break the textfile collector.
 
-# 8. the model gateway and the rung-4 backend (R4.11): a real request through the gateway on
-#    infra's loopback with the monitoring-probe key (secrets/monitoring-probe.env, from the vault),
-#    first to the gateway's own self-test, then to compute's router: an embedding from local-embed
-#    (qwen3-embedding-4b; the chat model glm-4.7-flash was retired 20260929, the owner's decision). A
-#    success writes its time to a state file, so the age survives failed runs. Counts and times only.
+# 8. the model gateway and the rung-4 backend (R4.11): real requests through the gateway on infra's loopback with
+#    the monitoring-probe key (secrets/monitoring-probe.env, from the vault): the gateway's own self-test, then one
+#    request per route on compute, labelled route=: local-embed only from 20261002 (the utility tier: the two chat models,
+#    local-text and local-chat, load on demand and swap; a probe of either would load it beside the other; a short
+#    completion with thinking off) and local-embed (an embedding). A success writes its time to a state file per
+#    route, so the age survives failed runs. Counts and times only; no content kept.
 echo '# HELP seed_gateway_selftest_success 1 if the gateway answered its self-test model.'
 echo '# TYPE seed_gateway_selftest_success gauge'
-echo '# HELP seed_inference_probe_success 1 if an embedding from local-embed (compute) came back through the gateway.'
+echo '# HELP seed_inference_probe_success 1 if the route on compute answered through the gateway.'
 echo '# TYPE seed_inference_probe_success gauge'
 echo '# HELP seed_inference_probe_duration_seconds Time the probe request took.'
 echo '# TYPE seed_inference_probe_duration_seconds gauge'
-echo '# HELP seed_inference_last_success_timestamp_seconds When a probe request last succeeded.'
+echo '# HELP seed_inference_last_success_timestamp_seconds When a probe request to the route last succeeded.'
 echo '# TYPE seed_inference_last_success_timestamp_seconds gauge'
 GWK=$(sed -n 's/^GATEWAY_PROBE_KEY=//p' /mnt/data/system/secrets/monitoring-probe.env 2>/dev/null)
 gw() { curl -s -m "$1" -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $GWK" -H 'Content-Type: application/json' \
   --data-binary @- "http://127.0.0.1:4000/v1/${2:-chat/completions}"; }
 st=$(printf '{"model":"seed-selftest","messages":[{"role":"user","content":"probe"}]}' | gw 15)
 echo "seed_gateway_selftest_success $([ "$st" = 200 ] && echo 1 || echo 0)"
-mkdir -p $OUT/.state; t0=$(date +%s%N)
-code=$(printf '{"model":"local-embed","input":"ok"}' | gw 120 embeddings)
-dur=$(awk -v a="$t0" -v b="$(date +%s%N)" 'BEGIN {printf "%.3f", (b - a) / 1e9}')
-if [ "$code" = 200 ]; then echo "seed_inference_probe_success 1"; date +%s > $OUT/.state/inference.last
-else echo "seed_inference_probe_success 0"; fi
-echo "seed_inference_probe_duration_seconds $dur"
-[ -s $OUT/.state/inference.last ] && echo "seed_inference_last_success_timestamp_seconds $(cat $OUT/.state/inference.last)"
+mkdir -p $OUT/.state
+probe() { # route endpoint timeout body
+  local t0 code dur; t0=$(date +%s%N); code=$(printf '%s' "$4" | gw "$3" "$2")
+  dur=$(awk -v a="$t0" -v b="$(date +%s%N)" 'BEGIN {printf "%.3f", (b - a) / 1e9}')
+  if [ "$code" = 200 ]; then echo "seed_inference_probe_success{route=\"$1\"} 1"; date +%s > $OUT/.state/inference.$1.last
+  else echo "seed_inference_probe_success{route=\"$1\"} 0"; fi
+  echo "seed_inference_probe_duration_seconds{route=\"$1\"} $dur"
+  [ -s $OUT/.state/inference.$1.last ] && echo "seed_inference_last_success_timestamp_seconds{route=\"$1\"} $(cat $OUT/.state/inference.$1.last)"; }
+# the smallest real request (20260930): a 1-token prompt, 1 token out, identical to the site agents' route check so
+# both share one cached slot; about a second, and never an agent's slot (the preset has a third)
+probe local-embed embeddings 120 '{"model":"local-embed","input":"ok"}'
 unset GWK
+
+# 6b. datasets with a quota: used against it (20261004: no rule watched
+# for it)
+echo '# HELP seed_zfs_dataset_used_bytes Bytes used by a dataset that has a quota.'
+echo '# TYPE seed_zfs_dataset_used_bytes gauge'
+echo '# HELP seed_zfs_dataset_quota_bytes The dataset quota.'
+echo '# TYPE seed_zfs_dataset_quota_bytes gauge'
+zfs get -Hp -o name,value -t filesystem quota 2>/dev/null | while read -r ds q; do
+  [ "$q" -gt 0 ] 2>/dev/null || continue
+  echo "seed_zfs_dataset_quota_bytes{dataset=\"$ds\"} $q"
+  echo "seed_zfs_dataset_used_bytes{dataset=\"$ds\"} $(zfs get -Hp -o value used "$ds")"
+done
 
 # 7. this producer's own heartbeat
 echo '# HELP seed_metrics_last_run_timestamp_seconds When seed-metrics.sh last completed.'

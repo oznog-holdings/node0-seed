@@ -1,0 +1,8 @@
+#!/bin/sh
+# The status page's own probe: fetches its URL (/etc/seed/statuspage-probe.conf, else the page's /health) and writes
+# seed_statuspage_probe_success for node_exporter. infra's blackbox checks the same page independently.
+url=$(cat /etc/seed/statuspage-probe.conf 2>/dev/null || echo http://192.168.1.12:8099/health)
+ok=0; curl -fsS -m 10 -o /dev/null "$url" && ok=1
+tf=/var/lib/prometheus/node-exporter; t=$(mktemp -p $tf .sp.XXXX)
+printf '# HELP seed_statuspage_probe_success 1 if the status page answered its own probe.\n# TYPE seed_statuspage_probe_success gauge\nseed_statuspage_probe_success %s\n' $ok > $t
+chmod 644 $t; mv $t $tf/seed-statuspage.prom

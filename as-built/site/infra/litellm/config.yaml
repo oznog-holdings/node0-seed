@@ -54,6 +54,22 @@ model_list:
   # glm-4.7-flash-local, local-chat and local-code (they are not pointed anywhere else, so nothing silently goes
   # hosted; a later local model takes the names). Its presets and benchmarks stay as the rung 4b record.
   # The remaining routes fail closed: no fallback, and no hosted deployment shares their names.
+  - model_name: local-chat          # the site agent's model (Hermes). Fails closed: a site agent's context holds the site's
+    litellm_params:                 # own data, so no hosted fallback, ever. The Mac's preset of the same name says which
+      model: openai/local-chat      # model (site/laptop/inference/presets.ini: Qwen3.8-27B from 20260929, the A3B on trial)
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 3600                 # a full context's prompt takes most of an hour on this Mac (rung4b.md, Qwen3.8)
+      input_cost_per_token: 0
+      output_cost_per_token: 0
+  - model_name: local-text          # the general text model (the utility tier, 20261002): summaries, transcripts, digests,
+    litellm_params:                 # not agent diagnosis. The A3B at 4 bit on compute. Fails closed (site data)
+      model: openai/local-text
+      api_base: http://compute.seed.example.com:8080/v1
+      api_key: os.environ/COMPUTE_LLAMA_API_KEY
+      timeout: 1800
+      input_cost_per_token: 0
+      output_cost_per_token: 0
   - model_name: local-embed         # embeddings: fails closed (another model's vectors don't compare)
     litellm_params:
       model: openai/qwen3-embedding-4b
@@ -66,6 +82,7 @@ model_list:
   - model_name: local-rerank        # reranking: fails closed; llama.cpp's /v1/rerank speaks the vLLM/Jina API
     litellm_params:
       model: hosted_vllm/qwen3-reranker-0.6b
+      # back on compute from 20261002 (the utility tier; on the agent box's CPU 20260930-20261002)
       api_base: http://compute.seed.example.com:8080/v1
       api_key: os.environ/COMPUTE_LLAMA_API_KEY
       timeout: 300
@@ -73,11 +90,10 @@ model_list:
       mode: rerank
   - model_name: local-stt           # speech-to-text: fails closed, always (private audio; the owner's rule)
     litellm_params:
-      # mistral/ is only the response parser: its transform accepts llama.cpp's transcription answer,
-      # while openai/ rejects its usage object (input_tokens_details, not input_token_details; 20260928).
-      # The api_base is the Mac: nothing goes to Mistral.
-      model: mistral/qwen3-asr-1.7b
-      api_base: http://compute.seed.example.com:8080/v1
+      # From 20261002 through compute's encoder service (encoders.py), which forwards to the router's speech model and
+      # strips its "language X<asr_text>" prefix: a plain {"text"} answer, so the openai/ parser takes it.
+      model: openai/qwen3-asr-1.7b
+      api_base: http://compute.seed.example.com:8082/v1
       api_key: os.environ/COMPUTE_LLAMA_API_KEY
       timeout: 600
     model_info:
@@ -91,6 +107,33 @@ router_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+  # the encoder service on compute (site/laptop/inference/encoders.py; the utility tier, 20261002): not OpenAI routes,
+  # so pass-through paths, each needing a gateway key (auth: true); the caller's key isn't forwarded, the Mac's is set
+  pass_through_endpoints:
+    - path: /utility/secrets                # gitleaks: secrets in a text, redacted
+      target: http://compute.seed.example.com:8082/v1/secrets
+      headers: {Authorization: "Bearer os.environ/COMPUTE_LLAMA_API_KEY"}
+      auth: true
+      methods: [POST]
+      timeout: 120
+    - path: /utility/pii                # PII-Tracer: personal data spans, a masked copy
+      target: http://compute.seed.example.com:8082/v1/pii
+      headers: {Authorization: "Bearer os.environ/COMPUTE_LLAMA_API_KEY"}
+      auth: true
+      methods: [POST]
+      timeout: 120
+    - path: /utility/injection                # prompt-injection screening: Qwen3Guard-Gen-0.6B and protectai's deberta v2
+      target: http://compute.seed.example.com:8082/v1/injection
+      headers: {Authorization: "Bearer os.environ/COMPUTE_LLAMA_API_KEY"}
+      auth: true
+      methods: [POST]
+      timeout: 120
+    - path: /utility/promptguard                # Prompt Guard 2: injection score (501 until installed)
+      target: http://compute.seed.example.com:8082/v1/promptguard
+      headers: {Authorization: "Bearer os.environ/COMPUTE_LLAMA_API_KEY"}
+      auth: true
+      methods: [POST]
+      timeout: 120
   database_url: os.environ/DATABASE_URL
   store_model_in_db: false          # the backend list lives in this file, not in the UI (rung 4: "written in the repo")
   disable_spend_logs: false

@@ -1,0 +1,13 @@
+# A small status page on core (a test target: nothing depends on it). /health for probes, /selfcheck for the
+# agent box's seed-selfcheck. Checked for real by infra's blackbox (targets/http-lan.yaml).
+[Unit]
+Description=seed status page (test target)
+After=network-online.target
+[Service]
+DynamicUser=yes
+StateDirectory=seed-statuspage
+ExecStartPre=/bin/sh -c 'cd /var/lib/seed-statuspage && { [ -s health ] || echo ok > health; } && { [ -s selfcheck ] || echo ok > selfcheck; }'
+ExecStart=/usr/bin/python3 -m http.server 8099 --bind 192.168.1.12 --directory /var/lib/seed-statuspage
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target

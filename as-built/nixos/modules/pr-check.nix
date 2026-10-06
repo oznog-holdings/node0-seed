@@ -44,7 +44,8 @@ let
       # core (Debian): the scripts parse (AdGuard's renders retired with it, rung 5 › F, 20260929)
       if [ -z "$fail" ]; then
         for f in $r/site/core/apply $r/site/core/seed-deploy $(find $r/site/core/files/usr/local/sbin -type f); do
-          bash -n "$f" || { fail="core: $(basename $f) does not parse"; break; }; done
+          case $(head -1 "$f") in *python*) chk="python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())'" ;; *) chk="bash -n" ;; esac
+          eval "$chk \"\$f\"" || { fail="core: $(basename $f) does not parse"; break; }; done
       fi
       if [ -z "$fail" ]; then status $sha success "every host built; core's tree checked"; echo "PR #$n $sha: success"
       else status $sha failure "$fail"; echo "PR #$n $sha: $fail"; fi

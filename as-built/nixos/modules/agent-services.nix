@@ -25,11 +25,20 @@ in {
   # --- the agent account: sudo for named commands only (design › three boundaries, R2.23).
   # Each only runs one of this box's own declared jobs now: the pull-deploy (which applies only
   # what is already on the forge's `deploy` ref), the /work backup, the watcher, the build check.
+  # Reading the pull-deploy's journal: seed-deploy-log [lines], its unit only, no pager (20261002, the orchestrator; not the
+  # systemd-journal group, which would show every unit's log).
   security.sudo.extraRules = [ {
     users = [ "agent" ];
     commands = map (u: { command = "/run/current-system/sw/bin/systemctl start ${u}.service"; options = [ "NOPASSWD" ]; })
-      [ "seed-deploy" "restic-backups-work" "seed-watcher" "seed-build-check" "seed-pr-check" ];
+      [ "seed-deploy" "restic-backups-work" "seed-watcher" "seed-build-check" "seed-pr-check" ]
+      ++ [ { command = "/run/current-system/sw/bin/seed-deploy-log"; options = [ "NOPASSWD" ]; } ];
   } ];
+  environment.systemPackages = [ (pkgs.writeShellScriptBin "seed-deploy-log" ''
+    n=''${1:-100}; [ $# -le 1 ] || { echo "usage: seed-deploy-log [lines]" >&2; exit 64; }
+    case $n in ""|*[!0-9]*) echo "usage: seed-deploy-log [lines]" >&2; exit 64;; esac
+    [ "$n" -le 5000 ] || n=5000
+    exec ${pkgs.systemd}/bin/journalctl --no-pager -o short-iso -u seed-deploy.service -n "$n"
+  '') ];
 
   # --- Tailscale: the second subnet router for the site's range; never accepts routes (a host
   # inside the site must prefer the LAN beside it). Route approval is a person's, in the admin console.

@@ -5,8 +5,8 @@
 # Usage: seed-notify <title> <priority 1-5> <message>
 set -uo pipefail
 title=$1 prio=$2 msg=$3
-tok=$(cat /etc/seed/ntfy-power-token)
-if curl -sf -m 10 --resolve ntfy.seed.example.com:443:192.168.1.12 -H "Authorization: Bearer $tok" \
+# the token on curl's stdin (a config line), never its argv (20261003)
+if printf 'header = "Authorization: Bearer %s"\n' "$(cat /etc/seed/ntfy-power-token)" | curl -sf -m 10 -K - --resolve ntfy.seed.example.com:443:192.168.1.12 \
      -H "Title: $title" -H "Priority: $prio" -H "Tags: seed,core" -d "$msg" https://ntfy.seed.example.com/seed >/dev/null; then
   exit 0
 fi

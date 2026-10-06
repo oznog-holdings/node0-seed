@@ -1,0 +1,144 @@
+#!/usr/bin/env python3
+"""site-intake: how alerts reach a site agent (briefs/agents.md › F), with a durable cursor per agent.
+
+Sources, both read-only:
+  1. core's ntfy, topic `seed`: every alert Alertmanager sends, firing and resolved (send_resolved), kept 24 h.
+     Read with the agents' read-only token (/run/secrets/tender_ntfy_token), polled since the cursor.
+  2. Prometheus on infra (ssh root@infra, loopback): which alerts fired between the cursor's time and now,
+     including those routed to the hosted topic (about core or ntfy itself), which the agents can't read.
+Cursor: ~/.local/state/site-intake/<agent>.json (the newest ntfy message id and time the agent has handled).
+  site-intake next     print what arrived since the cursor (ntfy messages, then Prometheus's alert history for
+                       the same window); does NOT advance the cursor. Exit 0 = something new, 1 = nothing new.
+Exit codes, every command: 2 = a source unavailable (ntfy, Alertmanager), 3 = site-intake itself failed (a crash,
+an unreadable state file, no SITE_AGENT). 2 and 3 mean the intake is broken: an incident, never "nothing new"
+(20261002: a crash used to exit 1, Python's default, and read as nothing new).
+  site-intake ack      advance the cursor to what `next` printed last (so a crash between next and ack replays)
+  site-intake firing   what is firing now (Alertmanager on infra)
+  site-intake status   the cursor, its age, and whether the window is still inside ntfy's 24 h cache
+Redaction (20261002): what `next` and `firing` print passes through site-redact first (secrets, then personal data,
+replaced by typed placeholders). It fails closed: if redaction is unavailable, the text is withheld, one line says so,
+the exit code is 2 (the intake is broken) and no pending cursor is written, so the window replays once it works.
+Agent: $SITE_AGENT (hermes or claude). Cadence: every 10 minutes from the agent's periodic task (site/agents/README.md).
+"""
+import json, os, re, subprocess, sys, time, urllib.request
+
+AGENT = os.environ.get('SITE_AGENT')
+if not AGENT: print('site-intake: SITE_AGENT is not set (hermes or claude): the intake is broken', file=sys.stderr); sys.exit(3)
+D = os.path.expanduser('~/.local/state/site-intake')
+try: os.makedirs(D, mode=0o700, exist_ok=True)
+except OSError as e: print(f'site-intake: state directory {D}: {e}: the intake is broken', file=sys.stderr); sys.exit(3)
+CUR, PEND = f'{D}/{AGENT}.json', f'{D}/{AGENT}.pending.json'
+NTFY = 'https://ntfy.seed.example.com/seed/json?poll=1'
+CACHE_S = 24 * 3600
+SCREEN = f'{D}/{AGENT}.screen'   # present: site-redact also labels lines an injection screen flags (the injection tests, 20261002)
+REDACT = os.environ.get('SITE_INTAKE_REDACT', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'site-redact'))   # a stand-in for tests
+INFRA = ['ssh', '-o', 'BatchMode=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=10', 'root@192.168.1.10']
+
+def load(p, d):  # absent: the default; present but unreadable (or the directory unreadable): a crash, exit 3
+    try: f = open(p)
+    except FileNotFoundError: return d
+    with f: v = json.load(f)
+    if not (isinstance(v, dict) and isinstance(v.get('id'), (str, type(None))) and isinstance(v.get('time'), (int, float))
+            and not isinstance(v.get('time'), bool) and v['time'] == v['time'] and abs(v['time']) != float('inf')):
+        raise ValueError(f'{p}: not a cursor: {v!r}')
+    return v
+def save(p, v):
+    t = p + '.tmp'; json.dump(v, open(t, 'w')); os.chmod(t, 0o600); os.replace(t, p)
+def token(): return 'tk_' + open('/run/secrets/tender_ntfy_token').read().strip()
+def ntfy(since, tok):
+    r = urllib.request.Request(f'{NTFY}&since={since}', headers={'Authorization': f'Bearer {tok}'})
+    with urllib.request.urlopen(r, timeout=30) as f:
+        return [m for m in (json.loads(l) for l in f.read().decode().splitlines() if l.strip()) if m.get('event') == 'message']
+def infra(cmd): return subprocess.run(INFRA + [cmd], capture_output=True, text=True, timeout=60).stdout
+def history(t0, t1):
+    """alerts that fired in [t0, t1] per Prometheus (ALERTS series), one line each: name, labels, first/last seen"""
+    step = max(60, int((t1 - t0) / 500))
+    q = f"curl -s --get 127.0.0.1:9090/api/v1/query_range --data-urlencode 'query=ALERTS{{alertstate=\"firing\"}}' --data-urlencode start={int(t0)} --data-urlencode end={int(t1)} --data-urlencode step={step}"
+    try: res = json.loads(infra(q))['data']['result']
+    except Exception as e: return None, f'(Prometheus history unavailable: {type(e).__name__})'
+    out = []
+    for s in res:
+        m = s['metric']; name = m.pop('alertname', '?')
+        if name == 'Watchdog': continue   # the dead-man: always firing by design
+        [m.pop(k, None) for k in ('alertstate', '__name__', 'job', 'site')]
+        ts = [float(v[0]) for v in s['values']]
+        hm = lambda t: time.strftime('%H:%MZ', time.gmtime(t))
+        # still firing if its last sample reaches the window's end (20261006: "firing 23:19Z to 23:29Z" read as ended
+        # when 23:29Z was only the window's end); otherwise it ended at its last sample
+        when = (f"firing since {hm(min(ts))}, STILL FIRING" if max(ts) > t1 - step
+                else f"firing {hm(min(ts))}-{hm(max(ts))}, ended")
+        out.append(f"{'CRITICAL ' if m.get('severity') == 'critical' else ''}{name} {json.dumps(m, sort_keys=True)} {when}")
+    return out, None
+
+def redacted(lines):
+    """the lines as the agent may see them (site-redact), or None: redaction unavailable, its line already printed"""
+    if not lines: return ''
+    scr = ['--screen'] if os.path.exists(SCREEN) else []
+    try: r = subprocess.run([sys.executable, REDACT] + scr, input='\n'.join(lines) + '\n', capture_output=True, text=True, timeout=180)
+    except Exception as e: print(f'REDACTION UNAVAILABLE: the intake text was withheld from you (site-redact: {type(e).__name__}); the intake is broken, say so'); return None
+    if r.returncode != 0:   # nothing of the child's output: a fixed line (its own says which service failed: its metric, the alert)
+        print(f'REDACTION UNAVAILABLE: the intake text was withheld from you (site-redact exited {r.returncode}); it replays once redaction works. The intake is broken, say so.'); return None
+    return r.stdout
+
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else 'next'
+    cur = load(CUR, None)
+    if cmd == 'status':
+        if not os.access(D, os.W_OK | os.X_OK): print(f'{D}: not writable: the intake is broken'); return 3
+        if not cur: print(f'{AGENT}: no cursor yet (the first `next` reads the last 24 h)'); return 0
+        age = time.time() - cur['time']
+        print(f"{AGENT}: cursor at ntfy message {cur['id']} ({time.strftime('%FT%TZ', time.gmtime(cur['time']))}, {int(age/60)} min ago);"
+              f" {'inside' if age < CACHE_S else 'OUTSIDE (messages may be lost)'} ntfy's 24 h cache"); return 0
+    if cmd == 'firing':
+        try: al = json.loads(infra('curl -s 127.0.0.1:9093/api/v2/alerts?active=true&silenced=false&inhibited=false'))
+        except Exception as e: print(f'(Alertmanager unavailable: {type(e).__name__})'); return 2   # upstream text never printed
+        if not isinstance(al, list): print(f'(Alertmanager answered a {type(al).__name__}, not a list of alerts)'); return 2
+        out = [f"{'CRITICAL ' if a['labels'].get('severity') == 'critical' else ''}FIRING {a['labels'].get('alertname')} {json.dumps({k: v for k, v in a['labels'].items() if k not in ('alertname', 'site')}, sort_keys=True)} since {a['startsAt'][:16]}Z: {a['annotations'].get('summary', '')}" for a in al if a['labels'].get('alertname') != 'Watchdog']
+        text = redacted(out)
+        if text is None: return 2
+        print(text, end=''); return 0
+    if cmd == 'ack':
+        global ACKED_PEND_MTIME
+        p = load(PEND, None)
+        if p: ACKED_PEND_MTIME = os.path.getmtime(PEND)
+        if not p: print('nothing to ack (run `next` first)'); return 1
+        save(CUR, p); os.remove(PEND); print(f"cursor -> {p['id']} ({time.strftime('%FT%TZ', time.gmtime(p['time']))})")
+        # the stamp site-heartbeat needs: a ping means this task's intake was read AND acknowledged (20261004)
+        with open(f'{D}/{AGENT}.acked', 'w') as f: f.write(time.strftime('%FT%TZ', time.gmtime()) + '\n')
+        return 0
+    if cmd != 'next': print(__doc__); return 64
+    since = cur['id'] if cur and cur.get('id') else (str(int(cur['time'])) if cur else '24h')
+    t0 = cur['time'] if cur else time.time() - CACHE_S
+    if cur and time.time() - t0 > CACHE_S: print(f'GAP: the cursor is older than ntfy\'s 24 h cache: messages before {time.strftime("%FT%TZ", time.gmtime(time.time() - CACHE_S))} are gone; Prometheus history below still covers the window')
+    tok = token()   # a local failure (the token unreadable): a crash, exit 3, not a source down
+    try: msgs = ntfy(since, tok)
+    except Exception as e: print(f'(ntfy unavailable: {type(e).__name__}{": HTTP " + str(e.code) if hasattr(e, "code") else ""}): intake is broken, say so'); return 2
+    crit = lambda m: 'CRITICAL ' if re.search(r'Severity: critical', m.get('message', '')) and not re.search(r'Resolved', m.get('title', '') + m.get('message', '')[:40]) else ''
+    out = [f"{crit(m)}{time.strftime('%FT%TZ', time.gmtime(m['time']))} [{m.get('title', '')}] {m.get('message', '').strip()}".replace('\n', ' | ') for m in msgs]
+    now = time.time(); hist, herr = history(t0, now)
+    if herr: print(f'{herr}: the window is not covered, intake is broken, say so'); return 2   # no pending: nothing to ack
+    if hist: out += [f"-- alerts that fired since {time.strftime('%FT%TZ', time.gmtime(t0))} (Prometheus):"] + ['   ' + h for h in hist]
+    text = redacted(out)
+    if text is None: return 2   # no pending: nothing to ack; the same window replays
+    print(text, end='')
+    last = msgs[-1] if msgs else None
+    save(PEND, {'id': last['id'], 'time': last['time']} if last else {'id': None, 'time': now})
+    return 0 if (msgs or hist) else 1
+
+BROKEN = f'{D}/{AGENT}.broken'   # while it exists, site-heartbeat refuses to ping (an agent can't ping past a broken intake)
+ACKED_PEND_MTIME = None          # the pending file an ack consumed: it clears BROKEN only if written after it
+try: rc = main()
+except SystemExit: raise
+except BaseException as e:  # a crash is exit 3, never Python's 1 ("nothing new")
+    tb = e.__traceback__
+    while tb.tb_next: tb = tb.tb_next   # where, not the message: an upstream value could be in it
+    print(f'site-intake: crashed: {type(e).__name__} at line {tb.tb_lineno}: the intake is broken, say so', file=sys.stderr); rc = 3
+cmd = sys.argv[1] if len(sys.argv) > 1 else 'next'
+try:
+    if rc in (2, 3):
+        open(BROKEN, 'w').write(f"{time.strftime('%FT%TZ', time.gmtime())} site-intake {cmd} exited {rc}\n")
+        if cmd == 'next' and os.path.isfile(PEND): os.remove(PEND)   # an older pending must not be acked past this
+    elif cmd == 'ack' and rc == 0 and os.path.lexists(BROKEN) and ACKED_PEND_MTIME and ACKED_PEND_MTIME > os.path.getmtime(BROKEN):
+        os.remove(BROKEN)   # a next that worked after the failure, and its ack
+except OSError as e: print(f'site-intake: could not record the failure ({e}): site-heartbeat checks the state directory itself', file=sys.stderr)
+sys.exit(rc)

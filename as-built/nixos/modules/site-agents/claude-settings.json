@@ -1,0 +1,12 @@
+{
+  "model": "claude-sonnet-5-5",
+  "permissions": { "defaultMode": "bypassPermissions" },
+  "skipDangerousModePermissionPrompt": true,
+  "env": {
+    "DISABLE_AUTOUPDATER": "1",
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false",
+    "SEED_VAULT": "bundle",
+    "SEED_REPO": "/work/tender/claude/seed-lab",
+    "SITE_AGENT": "claude"
+  }
+}

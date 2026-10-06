@@ -4,3 +4,7 @@
 - targets:
     - http://compute.seed.example.com:8080/health
   labels: { host: compute }
+# core's status page (a test target; nothing depends on it): its own probe writes seed_statuspage_probe_success
+- targets:
+    - http://192.168.1.12:8099/health
+  labels: { host: core }

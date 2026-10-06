@@ -32,8 +32,9 @@ let
   armCounting = pkgs.writeShellScript "seed-arm-boot-counting" ''
     # runs after NixOS's systemd-boot builder, as root, at every boot-loader install (a switch)
     set -euo pipefail
-    PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.findutils ]}
-    E=/boot/loader/entries; L=/boot/loader/loader.conf; A=/boot/loader/seed-armed
+    PATH=${lib.makeBinPath [ pkgs.coreutils pkgs.gnused pkgs.gnugrep pkgs.findutils pkgs.gawk ]}
+    B=''${SEED_BOOT_ROOT:-/boot}   # overridable only for the test (tools/test-boot-counting.sh)
+    E=$B/loader/entries; L=$B/loader/loader.conf; A=$B/loader/seed-armed
     touch $A
     chosen=$(sed -n 's/^default //p' $L)            # NixOS's choice: nixos-generation-M.conf
     # The builder has just rewritten a plain entry for every generation it lists (the newest
@@ -52,11 +53,19 @@ let
     fi
     # preferred: NixOS's choice, while it has tries left. default: the newest generation recorded as
     # blessed (seed-boot-blessed) whose entry is still there, and plain
-    R=/boot/loader/seed-blessed; touch $R
+    R=$B/loader/seed-blessed; touch $R
     if [ ! -s $R ]; then   # once, for boots blessed before the record existed: armed, now plain = blessed
-      while read -r id; do [ -e "$E/$id" ] && echo "$id 0 (armed, then plain: blessed before the record)"; done < $A >> $R
+      while read -r id; do if [ -e "$E/$id" ]; then echo "$id 0 (armed, then plain: blessed before the record)"; fi; done < $A >> $R
     fi
-    good=$(cut -d' ' -f1 $R | sort -u | while read -r id; do [ -e "$E/$id" ] && echo "$id"; done \
+    # a blessed generation whose entry the builder has since removed (garbage-collected, past the limit) can't
+    # be booted: drop it from the record. (Written as `[ -e ] && echo` in a loop this died under pipefail when
+    # the last id tested was gone, and failed every switch from 20260930 11:00Z; the orchestrator's incident.)
+    gone=$(cut -d' ' -f1 $R | sort -u | while read -r id; do if [ ! -e "$E/$id" ] && ! compgen -G "$E/''${id%.conf}+*.conf" >/dev/null; then echo "$id"; fi; done)
+    if [ -n "$gone" ]; then
+      awk -v g="$(printf '%s ' $gone)" 'BEGIN{n=split(g,a," "); for(i=1;i<=n;i++) d[a[i]]=1} !($1 in d)' $R > $R.tmp
+      mv $R.tmp $R; echo "boot counting: dropped from the blessed record (entries gone): "$gone
+    fi
+    good=$(cut -d' ' -f1 $R | sort -u | while read -r id; do if [ -e "$E/$id" ]; then echo "$id"; fi; done \
       | sed 's/^nixos-generation-\([0-9]*\)\.conf$/\1 &/' | sort -n | tail -1 | cut -d' ' -f2)
     if [ -z "$good" ]; then   # nothing proven yet (a new box): the newest plain entry, said so
       good=$(find $E -maxdepth 1 -name 'nixos-generation-*.conf' ! -name '*+*' -printf '%f\n' | sed 's/^nixos-generation-\([0-9]*\)\.conf$/\1 &/' | sort -n | tail -1 | cut -d' ' -f2)
@@ -90,6 +99,7 @@ let
   '';
 in {
   boot.loader.systemd-boot.extraInstallCommands = "${armCounting}";
+  system.build.seedArmBootCounting = armCounting;   # for tools/test-boot-counting.sh
 
   # the post-boot check that marks a generation good (boot-complete.target gates systemd-bless-boot)
   systemd.services.seed-boot-check = {

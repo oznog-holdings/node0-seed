@@ -1,7 +1,7 @@
 # As built
 
 The bench's working configuration, scripts and monitoring, exported from the build's own
-repository at commit 2783daf. It is what actually ran, with these changes for publication:
+repository at commit 76a6517. It is what actually ran, with these changes for publication:
 addresses outside the Seed are documentation addresses (`192.0.2.0/24`, `198.51.100.0/24`), and
 the bench's domain is `seed.example.com`; serials, MACs, device UUIDs and tailnet addresses are
 placeholders; the owner's login account is `admin`; public keys say where yours goes; and the

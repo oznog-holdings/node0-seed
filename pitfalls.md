@@ -306,3 +306,75 @@ LiteLLM's `openai/` transcription parser rejects llama.cpp's usage object
 
 **Do instead:** use LiteLLM's `mistral/` parser with the Mac as `api_base`; nothing goes to
 Mistral. See [rung 4b](rungs/4b-models/README.md#what-cost-us-time).
+
+## The building agent printed its own secrets (the agents)
+
+In four days Keel, the building agent, printed three secrets into its own session while reading
+configuration: an encryption key in an error message, part of an API key in a process listing,
+and five notification tokens from a file it had filtered with `grep -v`, whose lines did not
+contain the word it filtered on. A session goes to the model provider, so each counted as
+exposed and was rotated.
+
+**Do instead:** read a configuration through a list of named keys, never by filtering lines out.
+Then make it structural. Pass every command's output through a redactor before the agent sees
+it, refuse the command if the redactor is missing, and scan each turn's transcript afterwards for
+anything that got through ([the agents](agents/)).
+
+## A scheduled deploy that switched every 15 minutes, changed or not (rung 2)
+
+The agent box's pull-deploy rebuilt and switched every 15 minutes even when nothing had changed.
+Each switch reloaded the system's service manager and re-executed every user's. That re-based
+relative timers: a test window meant to last 60 minutes ran 75, and one of 40 ran 51. It also
+touched the agents' own services every quarter hour.
+
+**Do instead:** switch only when the build differs from what is running, what will boot, or what
+was last switched; and give any timer that must hold a deadline an absolute time, not "in 40
+minutes".
+
+## The agents read an old rulebook from their own branches (the agents)
+
+Each agent loaded its rulebook from its own working branch. Those branches still held the
+version from before four days of fixes, so none of the new rules reached the running agents.
+Found on 20261006.
+
+**Do instead:** deploy the rulebook as a read-only file owned by root, from the branch that
+deploys, and point the agents at that path. It then always matches what is deployed, and an agent
+cannot edit its own rules. To make a running agent reload it, exit the agent and start it again;
+restarting its terminal pane left the running agent alone.
+
+## A deploy restarted the agent under test (the agents)
+
+Between two test blocks, with the agent deliberately stopped, a deploy restarted the agents'
+user services, and that started the agent again with its start task. A check that failed during that
+switch made it exit with an error, so the next scheduled pull switched again, and start it a second time.
+
+**Do instead:** stop an agent for a window only after the last deploy's pull reports "no change",
+and check it is still stopped before the window starts. A guarded root step that refuses to run
+while the agent is running caught it here.
+
+## Alertmanager lost notifications to an intermittent 403 (rung 3)
+
+ntfy 2.28 refused a valid access token now and then under concurrent publishes: 4 of 200 with a
+token, 0 of 200 with a password. Alertmanager does not retry a 4xx, so two notifications were
+lost on 20261003.
+
+**Do instead:** have Alertmanager sign in to ntfy with a password, and route its own
+notification failures (NotifierFailing) to a second, hosted topic.
+
+## Critical alerts reached the owner but not the agent (rung 3)
+
+Core's own alerts went only to the hosted topic, by design, so the owner hears of core's absence
+even when core's ntfy is down with it. The agent cannot read the hosted topic, so it saw a
+critical alert about core only later, in Prometheus's history.
+
+**Do instead:** send those alerts to both topics. The owner gets a duplicate while core is up,
+and the agent sees them at once.
+
+## A prompt cache uses more memory than the process size shows (rung 4)
+
+With llama.cpp's RAM prompt cache on, the server's resident size understated what it used,
+because macOS compresses part of it. A supervisor that read the process size let memory pressure
+reach "warn" and then had to stop the server.
+
+**Do instead:** measure with macOS's footprint, which counts compressed memory, and budget about
+92 KiB a token for each saved prompt on a model like Qwen3.8-27B.

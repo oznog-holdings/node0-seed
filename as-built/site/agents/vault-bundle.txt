@@ -1,0 +1,11 @@
+# The vault items the site agents (tender) may use through the site's tools, read-only (tools/vault-env.sh,
+# SEED_VAULT=bundle): exactly what config-tool, the DNS push and fw-api.sh need to put drifted configuration
+# back. Made into nixos/secrets/agent.yaml (tender_vault_items) by tools/tender-bundle-make.sh. Revoking the
+# bundle is one line in nixos/modules/site-agents.nix; its values stay known, so rotate them if revoking for cause.
+wifi seed
+wifi seed-guest
+wifi seed-iot
+technitium core admin
+technitium infra admin
+technitium ddns firewall
+opnsense api root

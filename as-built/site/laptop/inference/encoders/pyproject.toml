@@ -1,0 +1,8 @@
+[project]
+name = "seed-encoders"
+version = "0.1.0"
+description = "compute: the encoder models behind the gateway (PII-Tracer, GLiNER2.5-Decide, Prompt Guard 2) and the secret scanner"
+requires-python = "==3.12.*"
+dependencies = ["torch", "transformers>=5.2", "gliner2", "safetensors", "huggingface_hub", "peft"]
+[tool.uv]
+package = false

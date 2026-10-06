@@ -1,0 +1,9 @@
+http://192.168.1.12:8099/health
+http://compute.seed.example.com:8080/health
+https://git.seed.example.com/api/healthz
+https://gw.seed.example.com/health/liveliness
+https://infra.seed.example.com/healthz
+https://infra.seed.example.com/sync/rest/noauth/health
+https://netbox.seed.example.com/login
+https://ntfy.seed.example.com/v1/health
+https://vault.seed.example.com/alive

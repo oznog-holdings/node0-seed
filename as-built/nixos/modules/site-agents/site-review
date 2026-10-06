@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# site-review: the site agents' second opinion (briefs/agents.md › E; the rulebook › What leaves the site).
+# The Codex CLI on gpt-6.1-sol at medium effort, read-only, one question per call, the answer on stdout.
+#   site-review "question and the few lines of evidence it needs"      (or the question on stdin)
+# Codex runs confined: /run/secrets inaccessible and the home replaced by an empty tmpfs except Codex's own
+# directory, in an empty working directory, so it answers from the question and cannot read the site's files.
+# Every call is logged (who, when, question, answer) in ~/.local/state/site-review/<agent>.log, 0600: that
+# agent and the orchestrator (root) can read it; blindness between the two agents is by the rulebook.
+# Codex unavailable: says so plainly on stderr and exits 2.
+set -uo pipefail
+agent=${SITE_AGENT:-unknown}
+q=${1:-}; [ -n "$q" ] || q=$(cat); [ -n "$q" ] || { echo "site-review: no question (argument or stdin)" >&2; exit 64; }
+L=$HOME/.local/state/site-review; mkdir -p -m 700 "$L"; log=$L/$agent.log; touch "$log"; chmod 600 "$log"
+t0=$(date -u +%FT%TZ); out=$(mktemp); err=$(mktemp); trap 'rm -f "$out" "$err"' EXIT
+prompt="You are a second-opinion reviewer for a small self-hosted site. Answer the question below from what it
+says, in plain text, briefly. You have none of the site's files; use your tools only if the question asks you to.
+
+$q"
+# SITE_REVIEW_TEST_OFFLINE=1 denies the scope all network: the unavailable path, tested for real
+net=(); [ "${SITE_REVIEW_TEST_OFFLINE:-}" = 1 ] && net=(-p PrivateNetwork=yes)   # (IPAddressDeny is ignored in a user manager: tested)
+# /work is hidden too: with its tools on, Codex could otherwise read the agents' site checkouts there (ProtectHome hides
+# only /home; Codex's review, 20260930).
+# (features.code_mode_host on the command line: tender's config.toml had it off, and without it every tool call fails)
+# ~/.local/bin/codex links to the pinned derivation in the store (nixos/pkgs/codex.nix): run it there, where the
+# tmpfs home doesn't hide it or the helper beside it that Codex's file and shell tools need (20260930)
+codex=$(readlink -f "$HOME/.local/bin/codex")
+systemd-run --user --quiet --wait --pipe --collect "${net[@]}" \
+  -p RuntimeMaxSec=300 -p InaccessiblePaths=/run/secrets -p InaccessiblePaths=/work -p ProtectHome=tmpfs -p BindPaths=$HOME/.codex -p PrivateTmp=yes -p WorkingDirectory=/tmp \
+  -- "$codex" exec --skip-git-repo-check --ephemeral --sandbox read-only \
+       -m gpt-6.1-sol -c model_reasoning_effort=medium -c features.code_mode_host=true "$prompt" >"$out" 2>"$err" </dev/null
+rc=$?
+if [ $rc -ne 0 ] || [ ! -s "$out" ]; then
+  why=$(grep -iE 'error|unauthor|429|rate|network|refused|timed out' "$err" | tail -1 | cut -c1-200)
+  printf '%s | %s | UNAVAILABLE (rc %s: %s) | Q: %s\n' "$t0" "$agent" "$rc" "${why:-no answer}" "$(tr '\n' ' ' <<<"$q")" >> "$log"
+  echo "site-review: Codex is unavailable (rc $rc${why:+: $why}). Carry on without it and say so." >&2; exit 2
+fi
+printf '%s | %s | Q: %s\n%s | %s | A: %s\n' "$t0" "$agent" "$(tr '\n' ' ' <<<"$q")" "$(date -u +%FT%TZ)" "$agent" "$(tr '\n' ' ' < "$out")" >> "$log"
+cat "$out"

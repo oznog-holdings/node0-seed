@@ -1,6 +1,6 @@
 # Photographs
 
-Taken on the bench while the Seed was built, between 20260923 and 20260928. Resized for the web,
+Taken on the bench while the Seed was built, between 20260923 and 20260930. Resized for the web,
 all metadata removed (phone photographs carry the location), and serial labels blurred.
 
 | File | What it shows | Alt text | Where it is used |
@@ -15,4 +15,6 @@ all metadata removed (phone photographs carry the location), and serial labels b
 | `infra-inside-memory-and-drives.jpg` | Inside the infra box on 20260928: the 48 GB memory module, three NVMe drives under their heatsinks, and one empty NVMe slot. | The circuit board of the NAS from above: one laptop-size memory module on the left, three drives under black finned heatsinks on the right, and an empty slot above them. | Rung 1, memory and storage |
 | `infra-inside-empty-slots.jpg` | The other side of the board, 20260928: four more empty NVMe slots. With the empty slot on the first side, the box has room to grow from three drives to eight. | The other side of the NAS board: a large black heatsink on the left and four empty drive slots on the right. | Rung 1, growing the pool |
 | `recovery-sticks-in-safe.jpg` | The two recovery-pack sticks in a fireproof safe, 20260928. | Two small black USB sticks in an open blue case on the floor of a fireproof safe. | The recovery pack |
+| `opnsense-guest-rules.png` | The firewall's rules for the guest network in OPNsense, 20260930: DNS to its own gateway, every private, link-local and tailnet address refused, then the internet. | A screenshot of OPNsense's Firewall: Rules page with the GUEST interface selected and three rules: guest DNS to its own gateway on port 53, guest to private addresses refused, and guest to the internet allowed. | Rung 6 |
+| `openwrt-wireless-networks.png` | The router's wireless page in OpenWrt, 20260930: the three networks, main, guest and IoT, on one radio, switched off between tests. | A screenshot of OpenWrt's Wireless Overview in a dark theme: two MediaTek radios, then three networks named seed, seed-guest and seed-iot, each marked disabled, and an empty table of connected devices. | Rung 5, wifi |
 | `ntfy-alerts-browser.png` | Alerts from the site in ntfy's web page, 20260928: each one says what failed and what it may mean. | A screenshot of the ntfy web page with three alerts: two "seed watcher: FAILING" and one "Power: UPS state unreadable", each with the checks that failed. | Rung 3, alerts |

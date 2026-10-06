@@ -1,0 +1,26 @@
+#!/bin/sh
+# site-heartbeat: ping this agent's Healthchecks check (tender-<agent>-work). Run it ONLY at the end of your periodic
+# task, after reading the intake and writing your log line: a ping means work done, not a process alive.
+a=${SITE_AGENT:?SITE_AGENT not set}; f=/run/secrets/tender_hc_${a}_work
+[ -r "$f" ] || { echo "site-heartbeat: no check for $a" >&2; exit 1; }
+# not past a broken intake (20261002: an agent chained `site-intake ack; site-heartbeat` and pinged although ack had
+# failed): site-intake leaves ~/.local/state/site-intake/<agent>.broken on exit 2 or 3 until the next ack works
+# paused by decision (~/.config/site-agents/paused/<agent>, its first line the reason): never a ping, since a ping
+# resumes a paused Healthchecks check, which then goes down (20261002: Hermes's morning-report run pinged at 13:28Z)
+p=$HOME/.config/site-agents/paused/$a
+# ...unless the active flag names this agent: an active agent's heartbeat is never silenced (a forgotten marker warns)
+if [ -e "$p" ]; then
+  if [ "$(cat /var/lib/site-agents/active 2>/dev/null)" = "$a" ]; then echo "site-heartbeat: $a is ACTIVE but marked paused ($p): pinging; remove the marker" >&2
+  else echo "site-heartbeat: NOT sent: $a is paused by decision ($(head -1 "$p")); its check stays paused" >&2; exit 0; fi
+fi
+b=$HOME/.local/state/site-intake/$a.broken
+if [ -e "$b" ] || ! site-intake status >/dev/null 2>&1; then
+  echo "site-heartbeat: NOT sent: the intake is broken ($(cat "$b" 2>/dev/null || echo "site-intake status failed")). Fix it, run next and ack, then ping; until then tell Christoph." >&2; exit 2
+fi
+# only after a successful ack in this task (20261004: in the Tender test an agent chained `ack; site-heartbeat` and
+# pinged although nothing was acknowledged): site-intake ack leaves <agent>.acked; it must be recent
+k=$HOME/.local/state/site-intake/$a.acked; max=${SITE_HEARTBEAT_ACK_MAX:-1200}
+if [ ! -e "$k" ] || [ $(( $(date +%s) - $(stat -c %Y "$k") )) -gt $max ]; then
+  echo "site-heartbeat: NOT sent: no successful site-intake ack in the last $((max / 60)) minutes. Run next and ack first; if ack fails, say so." >&2; exit 2
+fi
+curl -fsS -m 10 --retry 3 -o /dev/null "$(cat "$f")" && echo "heartbeat sent ($a, $(date -u +%FT%TZ))"

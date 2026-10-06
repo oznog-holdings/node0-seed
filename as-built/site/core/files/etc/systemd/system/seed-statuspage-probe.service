@@ -1,0 +1,5 @@
+[Unit]
+Description=seed status page: its own probe
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/seed-statuspage-probe

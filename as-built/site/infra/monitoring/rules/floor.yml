@@ -113,3 +113,14 @@ groups:
         expr: increase(alertmanager_notifications_failed_total[15m]) > 0
         labels: { severity: critical }
         annotations: { summary: "Alertmanager failed to deliver notifications ({{ $labels.integration }}, {{ $labels.reason }})." }
+      # (20261004) a dataset near its quota, a host needing a reboot
+      - alert: DatasetNearQuota
+        expr: seed_zfs_dataset_used_bytes / seed_zfs_dataset_quota_bytes > 0.85
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.dataset }} is at {{ $value | humanizePercentage }} of its quota." }
+      - alert: RebootRequired
+        expr: seed_reboot_required == 1
+        for: 1h
+        labels: { severity: warning }
+        annotations: { summary: "{{ $labels.host }} needs a reboot ({{ $labels.reason }}): a reboot is ask-first (some boxes have no remote console)." }

@@ -1,0 +1,65 @@
+# tender's Hermes (briefs/agents.md › D). Copied into ~tender/.hermes/config.yaml by tender-config.service.
+_config_version: 46
+model:
+  provider: "seed-gateway"
+  default: "local-chat"
+  context_length: 131072          # the served context (evidence/20260930-qwen38): one slot, f16 KV, no YaRN
+providers:
+  seed-gateway:                   # the site's gateway on infra, route local-chat = Qwen3.8-27B on compute (fails closed)
+    base_url: "https://gw.seed.example.com/v1"
+    api_mode: chat_completions
+    key_cmd: "cat /run/secrets/tender_gateway_key"   # the key stays in tmpfs, never in this file
+    context_length: 131072
+    models: ["local-chat"]
+    extra_body:                   # Qwen's template drops reasoning before the latest user turn; Hermes strips it too
+      chat_template_kwargs:
+        preserve_thinking: false
+    # llama.cpp sends nothing while it prefills, and a cold 128k prompt takes 34 minutes: Hermes's defaults for a
+    # remote endpoint (180 s without a byte, 1800 s a request) abort it (seen 20260930: a 34k cold start, twice)
+    stale_timeout_seconds: 2700
+    request_timeout_seconds: 3600
+agent:
+  max_turns: 500                  # Hermes's default, above the brief's 150
+  gateway_timeout: 3600           # a turn waiting on a cold prefill is not idle
+  reasoning_effort: "medium"
+terminal:
+  backend: "local"
+  cwd: "/work/tender/hermes/seed-lab"
+approvals:
+  mode: "off"                     # prompts off, as Claude Code (the owner's decision 2)
+security:
+  protected_instruction_files: false   # Claude Code has no such gate: the same authority for both
+tool_loop_guardrails:
+  warnings_enabled: true
+  hard_stop_enabled: false
+  non_interactive_hard_stop_enabled: false
+  warn_after:
+    exact_failure: 2
+    same_tool_failure: 3
+    idempotent_no_progress: 2
+compression:
+  enabled: true
+  # 0.65 of 131072 = 85197: Hermes floors the ratio at 0.75 for models under 512K, so the working set is held
+  # near 85k by the absolute cap, which fires at the lower of the two
+  threshold: 0.75
+  threshold_tokens: 85197
+  protect_first_n: 3
+  protect_last_n: 20
+  # one compression on this model: ≈ 18 min (evidence/20260930-agents-D-hermes.md); Hermes's defaults (a 120 s idle
+  # window floored at 300 s, a 600 s ceiling) would cut every one short and drop the middle unsummarized
+  context_timeout_seconds: 2700
+  context_total_ceiling_seconds: 3000
+  hygiene_total_ceiling_seconds: 3000
+auxiliary:                        # every side task on the same local model: nothing leaves the site
+  # The summary without thinking: with it, one compression of a full window ran over an hour (evidence/20260930-agents-D-hermes.md)
+  compression: { provider: "main", timeout: 2700, extra_body: { chat_template_kwargs: { enable_thinking: false } } }
+  title_generation: { enabled: false, provider: "main" }   # cosmetic, and it would take a slot from the prompt cache
+  session_search: { provider: "main" }
+  web_extract: { provider: "main" }
+  vision: { provider: "main" }
+display:
+  busy_input_mode: "interrupt"
+cron:
+  # one Hermes job at a time on Qwen (20260930): two sessions on the model's slots evicted each other's cached prompts
+  # and single calls took 8-21 minutes. Host-run jobs (startup, morning-report) also wait for site-watch (hermes-solo)
+  max_parallel_jobs: 1

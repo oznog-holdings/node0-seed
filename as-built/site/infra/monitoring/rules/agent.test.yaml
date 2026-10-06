@@ -63,3 +63,19 @@ tests:
         exp_alerts:
           - exp_labels: { severity: critical, host: agent }
             exp_annotations: { summary: "agent: /work is not the pinned filesystem; the agent's state mounts and the /work backup refused to start." }
+  - interval: 1m
+    input_series:
+      - series: 'seed_redaction_ok{host="agent"}'
+        values: '1 1 0 0 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RedactionUnavailable
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: RedactionUnavailable
+        exp_alerts:
+          - exp_labels: { severity: critical, host: agent }
+            exp_annotations: { summary: "agent: redaction is unavailable (site-redact failed closed): the agents' intake text is withheld until it works." }
+      - eval_time: 4m
+        alertname: RedactionUnavailable
+        exp_alerts: []

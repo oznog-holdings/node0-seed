@@ -99,3 +99,32 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning, host: core }
             exp_annotations: { summary: "No successful restore rehearsal from core for 9d 0h 0m 0s (it runs weekly)." }
+  - interval: 5m
+    input_series:
+      - series: 'seed_dns_drift_records{host="core",zone="seed.example.com"}'
+        values: '0 0 1 1 1 1 0'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: DnsDrift
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: DnsDrift
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core, zone: seed.example.com }
+            exp_annotations: { summary: "ns1's zone seed.example.com differs from the repository by 1 record(s): site/bin/check-dns shows them; site/dns/technitium/push puts it back." }
+      - eval_time: 30m
+        alertname: DnsDrift
+        exp_alerts: []
+  - interval: 5m
+    input_series:
+      - series: 'seed_dns_drift_records{host="core",zone="seed.example.com"}'
+        values: '-1x10'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DnsDriftUnknown
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: DnsDriftUnknown
+        exp_alerts:
+          - exp_labels: { severity: warning, host: core, zone: seed.example.com }
+            exp_annotations: { summary: "core can't compare ns1's zone seed.example.com with the repository (seed-dns-drift fails): DNS drift is unwatched." }
