@@ -107,3 +107,11 @@ fully charged throughout.
   site's faults, MTP, and the prompt cache.
 - The utility tier's memory budget and quality checks are on the [rung 4b](../rungs/4b-models/)
   page; the agent test's grades are on [the agents](../agents/) page.
+
+## The agents on a GPU (20261006 to 20261012)
+
+- [`agents/gpu-comparison-20261012.md`](agents/gpu-comparison-20261012.md): every graded block of
+  Hermes on one RTX 4090 against Tender on Sonnet 5.5, fault by fault, with times to notice,
+  output per run and the owner's questions.
+- [`agents/rubric-20261012.md`](agents/rubric-20261012.md): the grading rubric as the two graders
+  used it, written before the runs it governs.

@@ -378,3 +378,48 @@ reach "warn" and then had to stop the server.
 
 **Do instead:** measure with macOS's footprint, which counts compressed memory, and budget about
 92 KiB a token for each saved prompt on a model like Qwen3.8-27B.
+
+## A model server crash-looped for four days and looked healthy (rung 4)
+
+llama.cpp's server aborted about every 10 minutes, and systemd restarted it within a second each
+time. The unit was never in a failed state, its health check answered between crashes, and the
+host's alerts were silenced for the test. The model route's own alert needed 10 minutes of failure
+in a row, which never came. 427 restarts went unnoticed over three days. Any request in flight at
+a crash failed. From the agent's side it looked like slow, flaky thinking.
+
+**Do instead:** alert on a unit's restart count, not only on its state, and on a route that
+answers some of its probes but not all (ours warns below 80% over 30 minutes). A silence for a
+test should not cover the thing under test.
+
+## The health probe was what crashed the model server (rung 4)
+
+The model gateway's health probe sent the same short prompt every 5 minutes. On Qwen3.8's hybrid layers,
+llama.cpp fails to roll back a partly matching cached prompt and aborts
+([#28425](https://github.com/ggml-org/llama.cpp/issues/28425), open as of 20261012), so every
+second probe killed the server. Real traffic that reuses a prompt prefix hits the same bug.
+
+**Do instead:** on this model family, run llama.cpp with `--no-cache-prompt` until the fix lands,
+and send probes with `cache_prompt: false`. The cost is that every call reads its whole prompt
+again: about 10 s more at 25,000 tokens on a 24 GB GPU (arithmetic from the 2,190 to 2,860
+tokens/s it read on 20261006).
+
+## An agent whose model is unreachable cannot tell you (the agents)
+
+When the model goes away, the agent's scheduled runs fail before they can write or send
+anything. The only alarm was the dead-man, which fired 50 minutes after the last ping. In a
+40-minute model cut on 20261008, that was after the cut had ended.
+
+**Do instead:** have the scheduler report each failed or hung run to the heartbeat's fail
+endpoint. Ours now pages within one run (10 to 16 minutes, proven for both agents by cutting
+the model off).
+
+## The test leaked into what the agent could read (the agents)
+
+The agents found the fault harness five ways: its commands in the system journal, a
+world-readable helper script, the runner's arguments in the process list, a comment calling a page
+a "test target", and the other agent's files. One agent used what it found as evidence, and one
+proposed running the harness's own tool.
+
+**Do instead:** before trusting a test, grade what the agent read, not only what it
+did. Keep the harness's commands out of every log the agent can read, its files root-only, and
+its process names neutral, and search the site for words that point at the test.

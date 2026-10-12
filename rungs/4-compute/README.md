@@ -97,13 +97,19 @@ fast because it reads few of its weights, and on our faults it skipped the diagn
   with macOS's footprint, which counts compressed memory that the process size leaves out.
 - **What changed (20261002, Christoph).** The Mac stopped running agent models. The active
   agent runs on a hosted model with redaction in front of it ([the agents](../../agents/)), and
-  the Mac became the utility box of [rung 4b](../4b-models/). On this class of Mac, a local agent model needs a GPU instead,
-  and the same test on one is coming.
+  the Mac became the utility box of [rung 4b](../4b-models/). On this class of Mac, a local agent model needs a GPU instead.
+- **On a GPU (20261006 to 20261012).** The same 27B model on one RTX 4090 (24 GB), through
+  llama.cpp at a 131,072-token context, ran the site agent safely but less completely than the
+  hosted model ([the agents](../../agents/#a-local-model-on-a-gpu-hermes-against-tender)). A model
+  call took a median 18 to 20 s, writing about 46 tokens/s and reading 2,190 to 2,860 tokens/s.
+  The settings that held: one slot (`--parallel 1`) at the full context, and the prompt cache off
+  (`--no-cache-prompt`). With it on, llama.cpp aborted about every 10 minutes on this model
+  ([pitfalls](../../pitfalls.md#the-health-probe-was-what-crashed-the-model-server)).
 
-All figures 20260930 to 20261002, on the Seed's agent faults, from the bench's records
-([data/rung4](../../data/rung4/)).
-*Would change it:* a GPU with 24 GB or more, or a site whose data must never leave the house and
-can wait 40 minutes for a diagnosis.
+Figures 20260930 to 20261002 on the Mac, and 20261006 to 20261012 on the GPU, on the Seed's agent
+faults, from the bench's records ([data/rung4](../../data/rung4/), [data/agents](../../data/agents/)).
+*Would change it:* a site whose data must never leave the house: on a 24 GB GPU the same model
+diagnoses in minutes, not 40 ([the agents](../../agents/)).
 
 **A memory ceiling, enforced by a supervisor.**
 - Measure what the operating system needs with the model out, then set the ceiling below the
