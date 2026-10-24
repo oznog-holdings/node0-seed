@@ -423,3 +423,37 @@ proposed running the harness's own tool.
 **Do instead:** before trusting a test, grade what the agent read, not only what it
 did. Keep the harness's commands out of every log the agent can read, its files root-only, and
 its process names neutral, and search the site for words that point at the test.
+
+## A model client reached for the other agent's files (the agents)
+
+Hermes reached its hosted model through a plugin that starts the Claude Code command-line tool for
+each call. The tool was given its own configuration directory, and still read paths under its home
+directory, and it looked for a `.claude` folder in every directory above where it started. With two
+agents on one account, that put the other agent's state within reach. A file trace found it before
+any test ran. The reads were refused only because that state had been made unreadable for the test.
+
+**Do instead:** start the model client with its own home directory and a private working directory
+(mode 0700), through a small wrapper, and prove it with a file trace of every kind of call (a normal
+one, a failed one, a cancelled one) before you trust it.
+
+## The building agent's login expired, and nothing said so (the agents)
+
+During a test the building agent also stood in for the owner, answering the agent's questions with
+replies fixed in advance. Mid-test its Claude login expired, and it stopped where it stood. The
+fault runner and the agent under test carried on, so the test ran, but nobody watched its last four
+hours and one of the agent's questions went unanswered. The building agent is not a scheduled run,
+so no heartbeat noticed. A login that lapses looks the same as an agent with nothing to do.
+
+**Do instead:** check every login the site depends on every hour, with the cheapest real use of it,
+and page when one fails. Warn 30 days before a long-lived token expires.
+
+## Two more ways a test leaked (the agents)
+
+A `git stash` in the agent's test checkout held a line of the previous run's log, so the next run
+could have read it with `git stash list`. And the plugin vendor's own test suite, run on the agent
+box, left folders in `/tmp` whose names described tests, readable by the agent's account. Both were
+found by sweeping what the agent could read before the next run, and moved out of its reach.
+
+**Do instead:** never stash in a checkout the agent will use; copy aside to a place it cannot read.
+Before each test run, list everything in `/tmp` and `/var/tmp` the agent can read, and move anything
+from the test out of reach.

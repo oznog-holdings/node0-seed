@@ -6,11 +6,14 @@ and asks before anything with a cost. Keel built the site and still changes it, 
 brief and leaving every change in the repository. Each runs on the agent box from
 [rung 2](../rungs/2-agent/), in its own account, with its own credentials.
 
-**Status.** Both built and running on the bench. Tender has been the site's active agent since
+**Status.** Both built on the bench. Tender has been the site's active agent since
 20261006, after a test of 61 graded runs over four days (below). Keel has built the Seed since
 20260923. A local model on one 24 GB GPU then ran the same faults, graded the same way, from
 20261006 to 20261012. It was safe and slower, and less complete than the hosted model
-([below](#a-local-model-on-a-gpu-hermes-against-tender)).
+([below](#a-local-model-on-a-gpu-hermes-against-tender)). From 20261022 to 20261024 the two
+agent harnesses, Hermes and Claude Code, ran the same faults on the same hosted model and scored
+alike ([below](#harness-or-model-hermes-and-claude-code-on-one-model)). Both agents have been paused
+since 20261024, while no work is planned.
 
 ## What you get
 
@@ -42,7 +45,7 @@ brief and leaving every change in the repository. Each runs on the agent box fro
 
 ## If you run your own
 
-What these tests mean for a site like yours, as of 20261012.
+What these tests mean for a site like yours, as of 20261024.
 
 - **A site agent is worth running for routine faults.** On our faults Tender fixed or correctly
   reported most problems, asked before anything with a cost, and did nothing harmful. Expect it
@@ -55,6 +58,11 @@ What these tests mean for a site like yours, as of 20261012.
   done.
 - **Limit it with its account.** Give it its own user and its own credentials, and keep the rules
   in a file it cannot edit. Instructions in a prompt can be ignored; a missing permission cannot.
+- **Choose the model first, then the harness that fits.** In our tests, changing the model moved
+  the scores and changing the harness did not. On the same model Hermes and Claude Code scored
+  alike, and Hermes on Sonnet no longer stopped short of a fix. Harnesses still differ in how they
+  schedule, limit and connect an agent, and likely more on work we did not test. Many harnesses run
+  many models (Hermes ran both a local and a hosted one here), so the harness stays your choice.
 - **Choose the model by your data.** A hosted model gave the most complete results, for about $8
   to $10 a day at API prices from a fresh session. If your data must not leave the house, a 27B
   local model on one 24 GB GPU worked safely but missed more, noticed faults more slowly, and needs
@@ -62,9 +70,13 @@ What these tests mean for a site like yours, as of 20261012.
   average of 18.8 cents a kWh.
 - **Test it before you trust it.** Break a few things on purpose, with faults that undo
   themselves, and grade what the agent did. Check what it could read, too: our tests leaked into
-  the agents' view in five ways ([below](#testing-your-own-agent-what-leaked)).
+  the agents' view in seven ways ([below](#testing-your-own-agent-what-leaked)).
 - **Make sure you hear when the agent stops.** An agent whose model is unreachable cannot tell
   you. Have each failed run report itself to an outside check, as ours now does.
+- **Watch every login the site depends on.** An agent that is not a scheduled run, such as a
+  building agent, can stop on an expired login with nothing to report it. Check each login every
+  hour with a real sign-in, and warn 30 days before a long-lived token expires
+  ([what happened](#what-we-got-wrong-1)).
 
 ## Tender, the site agent
 
@@ -249,7 +261,7 @@ output). We pay by subscription, so these are what the tokens would cost on the 
 
 **What the numbers can and cannot tell you.** Eight faults, each run once or twice per agent, on one
 site, with one model per agent. Hermes's two runs with hands, on the same faults, differ by two, so
-a difference of one is noise. Our two blind graders, Rigger and Codex, agreed on 82% of 147
+a difference of two is noise. Our two blind graders, Rigger and Codex, agreed on 82% of 147
 graded runs across both tests (20261003 to 20261012), with the same
 written rubric; we publish the [rubric](../data/agents/rubric-20261012.md) so others can check.
 The claim holds for these eight faults and goes no further.
@@ -345,6 +357,102 @@ history is how an agent learns the shape of a test.
 - The health probe sends `cache_prompt: false`.
 - The reboot-pending alert waits 30 minutes (it was 60).
 
+## Harness or model: Hermes and Claude Code on one model
+
+**The answer first.** An agent harness is the program around the model: it runs the model's loop,
+its tools, its schedule and its limits. Hermes and Claude Code are two. On the same model, Sonnet
+5.5, they scored alike: 9 and 8 right out of 16 faults each, nothing wrong or harmful. Changing
+Hermes's model, from the local Qwen to Sonnet, ended its habit of stopping one step short of a fix,
+and on the same eight faults it went from 2 right to 5 (from 4 when Qwen had an extra rule to
+re-read its own work). In these tests, then, the model made the difference and the harness did not.
+
+This covers routine site faults: restarts, drift, full disks, a check that reports the wrong thing.
+For other work, such as coding or long knowledge work, harnesses likely differ more. The answer may
+also change as open models improve, or as larger models become practical to run at home.
+
+| | Hermes on Sonnet 5.5 | Claude Code on Sonnet 5.5 |
+|---|---|---|
+| with hands, 16 faults over two blocks | 9 right, 7 partly | 8 right, 8 partly |
+| shadow, 8 faults | 5 right, 3 partly | 5 right, 3 partly (block 42, 20261009) |
+| wrong or harmful | none | none |
+| time to notice a fault, median | 12.6 min, looking every 15 min | 7.8 min, looking every 10 min |
+| turns that ended without acting | none | not counted |
+| output tokens, one block with hands (same faults, same order) | 21,743 | 49,744 |
+| cost at list API prices | $4.06 for three blocks, about 30 hours: about $3 a day (arithmetic) | about $8 to $10 a day (Tender's own figure, above) |
+
+Blocks 61, 62 and 64 (Hermes) and 63 and 65 (Claude Code), 20261022 to 20261024, after a day of
+setup from 20261021. Full tables: [data/agents](../data/agents/harness-comparison-20261024.md).
+
+**What the numbers can and cannot tell you.** Sixteen faults a side, on one site. Claude Code, on
+the same faults in the same order, got 5 right on 20261012 and 3 right on 20261023, so a difference
+of two between blocks is noise. The two blind graders agreed on 39 of the 41 graded runs (40 faults
+and one morning report). Hermes reached Sonnet through a plugin its vendor marks experimental, and
+how much of the subscription's allowance the test used was not measured.
+
+### How it ran
+
+Hermes reached Sonnet through Nous Research's plugin `claude-subscription-directsdk` (0.3.3), which
+uses the Claude Code command-line tool as its model client only. Hermes kept its own loop, tools,
+approvals and compaction, and the plugin starts the tool with `--tools ''`, so Claude Code's own
+tools are off. Anthropic lets apps built on its Agent SDK run on a Claude subscription, each call
+drawing on the plan
+([Anthropic's help article](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan),
+read 20261021). Both agents ran at medium reasoning effort, with the same rulebook, the same fault
+harness, rubric and graders as the GPU test, and the same faults in the same sequence. Hermes ran
+three blocks first, two with hands and one in shadow; then Claude Code ran two with hands, on the
+same two sequences.
+
+**Rule: give the model client its own home.** The Claude Code command-line tool read paths under
+its home directory whichever configuration directory it was given, and it looked for a `.claude`
+folder in every directory above where it started. On one account with two agents, that let one
+agent's model client reach for the other agent's state. A small wrapper fixes it. It starts the
+tool with its own home directory, and in a working directory under `/tmp` that only the agent's
+account can open (mode 0700, its owner checked). A file trace of a normal call, a failed one and a
+cancelled one then showed the tool never tried to open the other agent's files
+([the runbook](../as-built/site/runbooks/hermes-sonnet-on-off.md)).
+
+### What else it showed
+
+- **Hermes's stops came with the model.** On Qwen, 1 to 5 turns a block ended in reasoning with no
+  action, and some cost a fix. On Sonnet, through the same harness, none did in three blocks.
+- **Hermes on Sonnet wrote much less.** About a tenth of its output on Qwen for the same faults, and
+  less than half of Claude Code's.
+- **The same three faults stayed partly for both agents:** finding why a check failed, naming the
+  cost when asking to delete data, and seeing that a health check's own probe reported the wrong
+  thing. Changing the harness did not move them.
+
+### What we got wrong
+
+- **The building agent's login expired mid-test.** During a test the building agent also stands in
+  for the owner, answering the agent's questions with replies fixed in advance. With its login
+  expired, nobody watched the last four hours of one block, and one of Hermes's questions went
+  unanswered. The building agent is not a scheduled run, so the heartbeat check never saw it stop.
+  Now a check uses each login the site depends on, every hour, in the cheapest real way (about 30
+  logins, among them both agents' Claude logins, the vault, the forge and the backup keys). A
+  failure takes down that service's outside check, which alerts the owner; a long-lived token warns
+  30 days before it expires. Proven on 20261024 with a wrong copy of one token, held in memory. Its
+  check went down within the run, and the next normal run brought it back.
+- **The test leaked twice more.** A `git stash` in the agent's test checkout held a line of the
+  previous block's log, and the plugin vendor's own test suite, run on the agent box, left folders
+  in `/tmp` the agent could read. Both were found before the agent ran, and moved out of its reach.
+  That makes seven ways in all ([the first five](#testing-your-own-agent-what-leaked)).
+
+### Where harnesses may go (research, not tested here)
+
+The model is not everything. The two work together, and our result compares two general-purpose
+harnesses on one kind of work, where they came out alike. Research published this month points the
+other way for harnesses built for the task. Google Research and Northwestern University's
+[Harness²](https://arxiv.org/abs/2610.14224) lets an agent reshape its own harness while it works:
+it writes its own skills and small tools, hands side tasks to sub-agents, and adds hard rules to its
+own control loop, without retraining the model. Across several kinds of work this beat the same
+model in its default harness ([a video walk-through](https://www.youtube.com/watch?v=pW2ktrJlsyE)).
+
+Several of its lessons are already how the Seed's agents are built: a short rulebook that is always
+read, with procedures kept in runbooks; small scripts for checks a model would do badly in its head;
+hard limits set in the account and the control loop, not in the prompt; and a checker from a
+different model family, so the agent does not grade its own work. We have not tested a harness that
+changes itself.
+
 ## Keel, the building agent
 
 Keel is Claude Code on Opus 5.5 at medium effort, in its own account (`agent`) and its own herdr
@@ -386,6 +494,14 @@ model was safe but less complete, and slower (above).
 *Would change it:* a site whose data must never leave the house; then run the local model on a
 GPU, keep its configuration as tested here, and read its reports against its commits.
 
+**Claude Code as the active harness, with Hermes on Sonnet ready to switch to.** The two scored
+alike on the same model. Claude Code needs no plugin, and Hermes on Sonnet needs one its vendor
+marks experimental. Claude Code was also set to look every 10 minutes and Hermes every 15, so it
+noticed sooner. Switching is the flag that decides which agent acts, plus the
+[runbook](../as-built/site/runbooks/hermes-sonnet-on-off.md)'s steps.
+*Would change it:* wanting Hermes's own strengths, such as its messaging gateway (it can reach the
+owner through chat apps such as Telegram), or an open-source harness.
+
 **Two agents under one rulebook, one flag deciding which acts.** Two agents acting on one site
 will fight; both can watch, only one may act.
 *Would change it:* a site with one agent needs only the rulebook and the shadow mode.
@@ -409,6 +525,9 @@ about the cost to name.
   loaded. At the US residential average of 18.8 cents a kWh (EIA, March 2026) that is about $0.50
   a day, $15 a month. The rest of the machine was not
   measured, so the wall figure is higher.
+- **Hermes on Sonnet.** About $4.06 at list API prices for three test blocks (24 faults over about
+  30 hours), about $3 a day (arithmetic), from the Claude Code command-line tool's own figure per
+  session (20261022 to 20261023).
 - **Time.** On Tender's first test (20261003 to 20261006), an alerted fault was diagnosed within
   2.8 to 12.8 minutes of injection, most of it waiting for the next 10-minute task.
 - **Redaction.** A median 0.69 s a message (0.60 to 0.88 s).
@@ -417,6 +536,7 @@ about the cost to name.
 
 - Handing over between agents: [`agents-handover.md`](../as-built/site/runbooks/agents-handover.md).
 - Testing an agent: [`agent-model-tests.md`](../as-built/site/runbooks/agent-model-tests.md).
+- Hermes on Sonnet, on and off: [`hermes-sonnet-on-off.md`](../as-built/site/runbooks/hermes-sonnet-on-off.md).
 
 ## Configuration
 

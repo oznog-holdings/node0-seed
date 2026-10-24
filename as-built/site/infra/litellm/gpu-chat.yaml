@@ -1,0 +1,15 @@
+  # gpu-chat: Qwen3.8-27B (Unsloth UD-Q4_K_XL) on the GPU day's node `gpu-test` (tailnet, tag:gpu-test, ephemeral),
+  # its :8080 forwarded to llama-server's OpenAI API on 127.0.0.1:18080 on the host, model alias qwen3.8-27b-gpu (the
+  # orchestrator, 20261006). Hermes's model for
+  # the GPU day and after it. Spliced into the deployed config by site/bin/deploy-infra-config ONLY while the switch
+  # gpu-chat.switch says "on" (off since 20261012) and the vault item "gpu-test model key" exists; its address is the
+  # node's tailnet IP, resolved then from infra's `tailscale status` (infra and its containers can't resolve tailnet
+  # names). Fails closed: site data, no fallback. Kept for the next time: site/runbooks/gpu-agent-on-off.md.
+  - model_name: gpu-chat
+    litellm_params:
+      model: openai/qwen3.8-27b-gpu
+      api_base: http://@GPU_TEST_IP@:8080/v1
+      api_key: os.environ/GPU_TEST_API_KEY
+      timeout: 1800                 # ~40 tok/s and a fast prefill: a full context is minutes, not most of an hour
+      input_cost_per_token: 0
+      output_cost_per_token: 0

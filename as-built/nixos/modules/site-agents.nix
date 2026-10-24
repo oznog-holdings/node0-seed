@@ -89,6 +89,7 @@ in
 
   systemd.user.timers = let t = cal: { unitConfig.ConditionUser = "tender"; wantedBy = [ "timers.target" ]; timerConfig = { OnCalendar = cal; Persistent = false; }; }; in {
     tender-claude-tick = t "*:0/10";
+    tender-hermes-hangcheck = t "*:1/5";   # 20261011: a woken site-watch run that hangs
     tender-qwen-check = t "*:0/5";
     tender-telegram-check = t "*:2/5";
     tender-morning-claude = t "*-*-* 07:01:00";
@@ -180,10 +181,31 @@ in
       serviceConfig.Type = "oneshot";
       script = ''
         [ -e ${H}/.config/site-agents/started ] || { echo "the agents are not started yet (site/agents/README.md › Start)"; exit 0; }
-        [ -e ${H}/.config/site-agents/paused/claude ] && [ "$(cat /var/lib/site-agents/active)" != claude ] && { echo "claude is paused by decision ($(head -1 ${H}/.config/site-agents/paused/claude)): skipped"; exit 0; }
+        [ -e ${H}/.config/site-agents/paused/claude ] && [ "$(cat /var/lib/site-agents/active)" != claude ] && { rm -f ${H}/.local/state/site-heartbeat/claude.prompted; echo "claude is paused by decision ($(head -1 ${H}/.config/site-agents/paused/claude)): skipped"; exit 0; }
         s=$(herdr agent list | jq -r '.result.agents[] | select(.name == "claude") | .agent_status')
         # herdr: idle and done both mean ready for input (done = idle, not yet viewed)
-        if [ "$s" = idle ] || [ "$s" = done ]; then herdr agent prompt claude "$(cat ${H}/.config/site-agents/prompts/periodic-task.txt)" >/dev/null && echo "prompted claude"
+        # the previous run (20261008): prompted, ended (idle, done, or the agent gone), and no heartbeat since → the
+        # check's fail endpoint, so the owner hears within one run, a crash included. A deliberate stop clears the
+        # stamp first (rm ~/.local/state/site-heartbeat/claude.prompted)
+        st=${H}/.local/state/site-heartbeat
+        if { [ "$s" = idle ] || [ "$s" = done ] || [ -z "$s" ]; } && [ -e $st/claude.prompted ]; then
+          w=$(cat $st/claude.prompted); l=$(cat $st/claude.last 2>/dev/null || echo 0)
+          if [ "$l" -lt "$w" ] && [ "$(cat $st/claude.hungfail 2>/dev/null)" != "$w" ]; then site-heartbeat --fail "the periodic task prompted at $(date -u -d @$w +%H:%MZ) ended with no heartbeat" || true; fi
+          rm -f $st/claude.prompted $st/claude.hungfail
+        fi
+        # a hung run (20261011): still working 20 min after its prompt, with no heartbeat since → the fail endpoint, once
+        # for that prompt (claude.hungfail holds its stamp)
+        if [ -e $st/claude.prompted ] && [ -n "$s" ] && [ "$s" != idle ] && [ "$s" != done ]; then
+          w=$(cat $st/claude.prompted); l=$(cat $st/claude.last 2>/dev/null || echo 0)
+          # progress: a session file written in the last 10 minutes means it's working, not hung
+          act=$(stat -c %Y ${H}/.claude/projects/*/*.jsonl 2>/dev/null | sort -n | tail -1); act=''${act:-0}
+          if [ $(( $(date +%s) - w )) -gt 1200 ] && [ $(( $(date +%s) - act )) -gt 600 ] && [ "$l" -lt "$w" ] && [ "$(cat $st/claude.hungfail 2>/dev/null)" != "$w" ]; then
+            out=$(site-heartbeat --fail "the periodic task prompted at $(date -u -d @$w +%H:%MZ) is still working after 20 min, idle 10, with no heartbeat" 2>&1) || true
+            case "$out" in *"FAIL sent"*) echo "$w" > $st/claude.hungfail ;; esac   # only a sent fail stops a repeat
+          fi
+        fi
+        if [ "$s" = idle ] || [ "$s" = done ]; then
+          herdr agent prompt claude "$(cat ${H}/.config/site-agents/prompts/periodic-task.txt)" >/dev/null && { mkdir -p $st; date +%s > $st/claude.prompted; echo "prompted claude"; }
         elif [ -z "$s" ]; then echo "claude is absent: starting it again"; systemctl --user restart tender-claude-pane
         else echo "claude is $s: no prompt this time"; fi
       '';
@@ -191,6 +213,31 @@ in
     # compute's local backend answers the agents' key: an embedding (local-embed, always resident). From 20261002 (the
     # utility tier) the chat models load on demand and swap, and a chat probe every 5 minutes would load one beside the
     # other. The key reaches curl through a file descriptor, not its arguments.
+    # a hung Hermes run (20261011): site-watch's run, woken by its pre-check (the stamp run-woken), still without a
+    # heartbeat 20 min later → the fail endpoint, once for that run. Hermes's own cron timeout counts inactivity, not
+    # a run's length, so it can't do this. Paused by decision: site-heartbeat --fail sends nothing.
+    tender-hermes-hangcheck = {
+      unitConfig = only; environment = env // { SITE_AGENT = "hermes"; };
+      serviceConfig.Type = "oneshot";
+      script = ''
+        S=${H}/.local/state/site-watch; st=${H}/.local/state/site-heartbeat
+        [ -e $S/run-woken ] || exit 0
+        w=$(cat $S/run-woken); l=$(cat $st/hermes.last 2>/dev/null || echo 0)
+        # site-watch paused (deliberately): no check
+        hermes cron list 2>/dev/null | grep -A1 -E '^ *bd48b40e4847 ' | grep -q '\[paused\]' && exit 0
+        # progress: the newest message of a site-watch run in Hermes's session store (session ids cron_bd48b40e4847_*),
+        # as epoch seconds: no timezone or DST to misread, and none found is 0. Not agent.log's mtime: the gateway writes
+        # housekeeping lines there every minute (Rigger, 20261011)
+        act=$(python3 -c 'import sqlite3, os
+c = sqlite3.connect("file:" + os.path.expanduser("~/.hermes/state.db") + "?mode=ro", uri=True)
+r = c.execute("select max(timestamp) from messages where session_id like ?", ("cron_bd48b40e4847_%",)).fetchone()[0]
+print(int(r or 0))' 2>/dev/null) || act=0; act=''${act:-0}
+        if [ $(( $(date +%s) - w )) -gt 1200 ] && [ $(( $(date +%s) - act )) -gt 600 ] && [ "$l" -lt "$w" ] && [ "$(cat $S/hungfail 2>/dev/null)" != "$w" ]; then
+          out=$(site-heartbeat --fail "site-watch's run woken at $(date -u -d @$w +%H:%MZ) is still going after 20 min, idle 10, with no heartbeat" 2>&1) || true
+          case "$out" in *"FAIL sent"*) echo "$w" > $S/hungfail ;; esac   # only a sent fail stops a repeat
+        fi
+      '';
+    };
     tender-qwen-check = {
       unitConfig = only; environment = env;
       serviceConfig.Type = "oneshot";

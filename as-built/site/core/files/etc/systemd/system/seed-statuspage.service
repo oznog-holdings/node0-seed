@@ -1,7 +1,7 @@
-# A small status page on core (a test target: nothing depends on it). /health for probes, /selfcheck for the
+# A small status page on core (nothing depends on it). /health for probes, /selfcheck for the
 # agent box's seed-selfcheck. Checked for real by infra's blackbox (targets/http-lan.yaml).
 [Unit]
-Description=seed status page (test target)
+Description=seed status page
 After=network-online.target
 [Service]
 DynamicUser=yes

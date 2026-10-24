@@ -86,3 +86,7 @@ for m in seed_dns_drift_records seed_router_config_drift_lines seed_firewall_con
 done
 fi
 if [ $QUICK = 1 ]; then echo "site-sweep --quick $(date -u +%H:%MZ): $f finding(s) (units, reboot flags, producers)"; else echo "site-sweep: $f finding(s)"; fi
+# the record of every sweep (20261008): a sweep run by Hermes's scripted pre-check makes no model call, so no session
+# shows it; one line each, appended, for anyone asking "was it swept, and what did it find?"
+r=${XDG_STATE_HOME:-$HOME/.local/state}/site-sweep; mkdir -p "$r" 2>/dev/null && \
+  printf '%s agent=%s mode=%s findings=%s\n' "$(date -u +%FT%TZ)" "${SITE_AGENT:-unknown}" "$([ $QUICK = 1 ] && echo quick || echo full)" "$f" >> "$r/runs.log" 2>/dev/null || true

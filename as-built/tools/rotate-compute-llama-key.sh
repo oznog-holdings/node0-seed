@@ -28,13 +28,13 @@ old=$(bw get password "$id"); new=$(bw generate --length 48 -uln)
 echo "old $(printf %s "$old" | h), new $(printf %s "$new" | h)"
 setvault() { bw get item "$id" | jq --rawfile p <(printf %s "$1") '.login.password=$p' | bw encode | bw edit item "$id" >/dev/null; bw sync >/dev/null
   [ "$(bw get password "$id" | h)" = "$(printf %s "$1" | h)" ]; }
-setmac() { printf '%s' "$1" | S $MAC 'umask 077; cd ~/.config/seed && cat > llama.key.new && mv llama.key.new llama.key && chmod 600 llama.key'
+setmac() { local i p; printf '%s' "$1" | S $MAC 'umask 077; cd ~/.config/seed && cat > llama.key.new && mv llama.key.new llama.key && chmod 600 llama.key'
   S $MAC 'before=$(pgrep -f '"'"'^/bin/bash [^ ]*/inference/supervise\.sh$'"'"' | head -1); sudo -n /bin/launchctl kickstart -k system/co.oznog.seed.inference || exit 1
     for i in $(seq 1 30); do now=$(pgrep -f '"'"'^/bin/bash [^ ]*/inference/supervise\.sh$'"'"' | head -1); [ -n "$now" ] && [ "$now" != "$before" ] && break; sleep 1; done
     [ -n "$now" ] && [ "$now" != "$before" ] || exit 1   # a new supervisor, not the old one still answering
     for p in 8080 8082; do ok=; for i in $(seq 1 100); do [ "$(curl -s -m 3 -o /dev/null -w %{http_code} http://192.168.1.20:$p/health)" = 200 ] && { ok=1; break; }; sleep 3; done; [ -n "$ok" ] || exit 1; done'; }
 unlock() { BW_SESSION=$(. "$R/tools/vault-env.sh"; bw unlock --passwordenv BW_PASSWORD --raw 2>/dev/null); export BW_SESSION; }
-setgateway() { local rc=0; bw lock >/dev/null   # deploy-infra-config unlocks and locks the vault itself
+setgateway() { local i; local rc=0; bw lock >/dev/null   # deploy-infra-config unlocks and locks the vault itself
   ( cd "$R/site" && bin/deploy-infra-config >/dev/null 2>&1 ) || rc=1
   [ $rc = 0 ] && { "$R/tools/ui/run.sh" edit-container.js litellm >/dev/null 2>&1 || rc=1; }
   unlock

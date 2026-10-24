@@ -48,3 +48,74 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning, route: local-embed }
             exp_annotations: { summary: "The inference probe for local-embed has never succeeded (no seed_inference_last_success_timestamp_seconds): check the probe key and the gateway entry." }
+  # failing every second probe (the crash loop, 20261010): GpuChatFlapping fires, GpuChatDown never does
+  - interval: 5m
+    input_series:
+      - series: 'seed_inference_probe_success{instance="infra",route="gpu-chat"}'
+        values: '1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0'
+      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra",route="gpu-chat"}'
+        values: '0 0 600 600 1200 1200 1800 1800 2400 2400 3000 3000 3600 3600 4200 4200 4800 4800'
+    alert_rule_test:
+      - eval_time: 80m
+        alertname: GpuChatFlapping
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra, route: gpu-chat }
+            exp_annotations: { summary: "gpu-chat is failing on and off: 50% of its probes answered in the last 30 minutes (the node restarting, or its path from infra)." }
+      - eval_time: 80m
+        alertname: GpuChatDown
+        exp_alerts: []
+  # the route torn down after failing on and off: no metric now, so GpuChatFlapping doesn't fire on the window's old samples
+  - interval: 5m
+    input_series:
+      - series: 'seed_inference_probe_success{instance="infra",route="gpu-chat"}'
+        values: '1 0 1 0 1 0 1 0 1 0 stale'
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: GpuChatFlapping
+        exp_alerts: []
+  # the route switched off while failing (gpu-chat.switch, 20261012): the probe stops, so both series end; none of the
+  # three GpuChat alerts fires on the old samples (the stand-down's check)
+  - interval: 5m
+    input_series:
+      - series: 'seed_inference_probe_success{instance="infra",route="gpu-chat"}'
+        values: '1 1 0 0 0 0 stale'
+      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra",route="gpu-chat"}'
+        values: '0 300 300 300 300 300 stale'
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: GpuChatDown
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: GpuChatFlapping
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: GpuChatStale
+        exp_alerts: []
+      - eval_time: 90m
+        alertname: GpuChatStale
+        exp_alerts: []
+  # the GPU day's route (20261006): down for 10 min fires GpuChatDown; its stale timestamp fires GpuChatStale, never the
+  # compute rule InferenceBackendStale
+  - interval: 5m
+    input_series:
+      - series: 'seed_inference_probe_success{instance="infra",route="gpu-chat"}'
+        values: '1 1 1 0x10'
+      - series: 'seed_inference_last_success_timestamp_seconds{instance="infra",route="gpu-chat"}'
+        values: '0 300 600 600x10'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GpuChatDown
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: GpuChatDown
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra, route: gpu-chat }
+            exp_annotations: { summary: "gpu-chat (gpu-test's model through the gateway) hasn't answered for 10 minutes: the node, its tailnet path from infra, or its key." }
+      - eval_time: 30m
+        alertname: GpuChatStale
+        exp_alerts:
+          - exp_labels: { severity: warning, instance: infra, route: gpu-chat }
+            exp_annotations: { summary: "No answer from gpu-chat for 20m 0s (the GPU day's route)." }
+      - eval_time: 30m
+        alertname: InferenceBackendStale
+        exp_alerts: []

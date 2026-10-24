@@ -115,3 +115,11 @@ fully charged throughout.
   output per run and the owner's questions.
 - [`agents/rubric-20261012.md`](agents/rubric-20261012.md): the grading rubric as the two graders
   used it, written before the runs it governs.
+
+## Harness or model (20261021 to 20261024)
+
+- [`agents/harness-comparison-20261024.md`](agents/harness-comparison-20261024.md): Hermes and
+  Claude Code on the same model, Sonnet 5.5, on the same faults, fault by fault, with times to
+  notice, output, cost and the owner's questions.
+- [`agents/rubric-20261024.md`](agents/rubric-20261024.md): the rubric with this test's section,
+  written before its runs.

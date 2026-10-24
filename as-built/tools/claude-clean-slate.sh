@@ -4,7 +4,9 @@
 # tick timer stopped (the script refuses otherwise), and its heartbeat check paused by whoever runs the test.
 #   save NN-label   archive what Claude can read back, then leave it empty:
 #                   ~/.claude: projects (transcripts, memory), history.jsonl, sessions, session-env, shell-snapshots,
-#                   paste-cache, todos, file-history, plans; the checkout: its log and follow-ups (headers only)
+#                   paste-cache, todos, file-history, plans; the checkout: its log and follow-ups (headers only);
+#                   its scratchpads in /tmp/claude-<uid>/ (the harness test, 20261021: round 2 left them readable),
+#                   except those of Hermes's model client (named after its cwd, claude-directsdk-cwd: Hermes's slate)
 #                   The first save keeps the production state in original/; a later one keeps the previous run's
 #                   state in that run's final/. Everything is MOVED, never deleted.
 #   restore         the previous run's state to its final/; the original back; the log rebuilt as the original
@@ -15,6 +17,9 @@ set -euo pipefail
 A=${CLEAN_SLATE_DIR:-$HOME/archive/clean-slate/$(date -u +%Y%m%d)-claude}
 C=${CLEAN_SLATE_CHECKOUT:-/work/tender/claude/seed-lab}; LOG=site/agents/log/claude.md; FU=site/agents/followups/claude.md
 STATE=(projects history.jsonl sessions session-env shell-snapshots paste-cache todos file-history plans)
+TMPC=${CLEAN_SLATE_CLAUDE_TMP:-/tmp/claude-$(id -u)}
+# NUL-separated (whatever the names hold), read into the array E
+tmp_entries() { E=(); [ -d "$TMPC" ] || return 0; mapfile -d '' -t E < <(find "$TMPC" -mindepth 1 -maxdepth 1 ! -name '*claude-directsdk-cwd*' -printf '%f\0'); }
 export PATH=$HOME/.local/bin:$PATH
 die() { echo "claude-clean-slate: $*" >&2; exit 1; }
 # CLEAN_SLATE_REHEARSAL=1: a rehearsal on copies (HOME and the checkout elsewhere): the live checks skipped
@@ -23,11 +28,13 @@ herdr agent list | jq -e '.result.agents[] | select(.name == "claude")' >/dev/nu
 systemctl --user is-active -q tender-claude-tick.timer && die "stop tender-claude-tick.timer first"
 fi
 [ "$(git -C $C branch --show-current)" = agents/claude ] || die "the checkout isn't on agents/claude"
-keep() {  # keep <dir>: move Claude's state and copy its log and follow-ups there; into <dir>.partial first, renamed when
+keep() { local s;  # keep <dir>: move Claude's state and copy its log and follow-ups there; into <dir>.partial first, renamed when
   # complete, so an interrupted keep is visible (and nothing is ever moved over an existing archive)
   [ -e "$1" ] || [ -e "$1.partial" ] && die "$1 or $1.partial exists: an earlier save or restore stopped midway; reconcile by hand"
   mkdir -p "$1.partial"
   for s in "${STATE[@]}"; do if [ -e ~/.claude/$s ]; then mv -n ~/.claude/$s "$1.partial/"; [ ! -e ~/.claude/$s ] || die "could not move ~/.claude/$s"; fi; done
+  mkdir "$1.partial/tmp-claude"; local e; tmp_entries
+  for e in "${E[@]}"; do mv -n -- "$TMPC/$e" "$1.partial/tmp-claude/"; [ ! -e "$TMPC/$e" ] || die "could not move $TMPC/$e"; done
   cp -a $C/$LOG "$1.partial/claude.md"; cp -a $C/$FU "$1.partial/followups.md"; git -C $C rev-parse HEAD > "$1.partial/HEAD"
   mv -n "$1.partial" "$1"; }
 commit() { git -C $C add $LOG $FU; git -C $C commit -q -m "$1" || true; }
@@ -45,6 +52,12 @@ save)
 restore)
   [ -d "$A/original" ] || die "no $A/original"; [ -e "$A/RESTORED" ] && die "already restored"; p=$(last_run); [ -n "$p" ] && [ ! -d "$p/final" ] && keep "$p/final"
   for s in "${STATE[@]}"; do [ -e ~/.claude/$s ] && die "~/.claude/$s exists after keeping the last run: look first"; [ -e "$A/original/$s" ] && mv "$A/original/$s" ~/.claude/; done
+  tmp_entries; [ ${#E[@]} = 0 ] || die "$TMPC has entries after keeping the last run: look first"
+  if [ -d "$A/original/tmp-claude" ]; then
+    mapfile -d '' -t E < <(find "$A/original/tmp-claude" -mindepth 1 -maxdepth 1 -printf '%f\0')   # dotfiles too
+    [ ${#E[@]} = 0 ] || mkdir -p -m 700 "$TMPC"
+    for e in "${E[@]}"; do mv -n -- "$A/original/tmp-claude/$e" "$TMPC/"; done
+  fi
   { cat "$A/original/claude.md"
     for r in $(ls -d "$A"/run-* 2>/dev/null | sort); do
       echo "- (test run ${r##*/run-}, a clean slate, its lines follow; site/runbooks/agent-model-tests.md)"; tail -n +4 "$r/final/claude.md"; done; } > $C/$LOG

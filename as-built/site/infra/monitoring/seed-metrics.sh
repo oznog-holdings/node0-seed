@@ -126,6 +126,12 @@ probe() { # route endpoint timeout body
 # the smallest real request (20260930): a 1-token prompt, 1 token out, identical to the site agents' route check so
 # both share one cached slot; about a second, and never an agent's slot (the preset has a third)
 probe local-embed embeddings 120 '{"model":"local-embed","input":"ok"}'
+# the GPU day (20261006): gpu-chat only while the gateway's deployed config has it (no metric otherwise, so nothing
+# alerts before the route exists or after its teardown); 1 token out, thinking off. cache_prompt false (20261010): the
+# same tiny prompt every 5 minutes reused llama.cpp's prompt cache, which aborted the server on Qwen3.8's hybrid layers
+# (llama.cpp #28425) every second probe; the gateway passes the field through, as it does chat_template_kwargs
+grep -q 'model_name: gpu-chat' /mnt/data/appdata/litellm/config.yaml 2>/dev/null && \
+  probe gpu-chat chat/completions 60 '{"model":"gpu-chat","messages":[{"role":"user","content":"ok"}],"max_tokens":1,"cache_prompt":false,"chat_template_kwargs":{"enable_thinking":false}}'
 unset GWK
 
 # 6b. datasets with a quota: used against it (20261004: no rule watched

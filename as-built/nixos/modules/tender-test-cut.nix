@@ -1,5 +1,5 @@
 # The Tender test's stage 3 (the dependency blocks): one narrow root helper, for the test window only (the
-# NOT IMPORTED since the re-runs' restore (20261006): import it in hosts/agent for a dependency block only.
+# Imported for the GPU day's block 34 (20261006); removed at its teardown.
 # orchestrator, 20261004; removed at restore). It takes away ONE of three named dependencies from the tender uid alone,
 # on this box alone, and puts it back by itself:
 #   3a  the model API (api.anthropic.com)                          40 min

@@ -236,3 +236,69 @@ after-arm fixes. Only the runs that failed are re-run, plus two controls:
 - **No deploy during the block**, nor between its setup and its restore: a deploy restarts tender's units.
 - The rubric's "Block 21" section was fixed before it ran.
 
+
+### 5.9 The GPU day (the orchestrator, 20261006): Hermes on a GPU against Tender
+**What exists.**
+- The node `gpu-test` (tag:gpu-test, ephemeral) serves Qwen3.8-27B (Unsloth UD-Q4_K_XL) with llama-server on :8080
+  (alias `qwen3.8-27b-gpu`, an API key). Infra may reach its :8080; it reaches nothing.
+- The gateway route `gpu-chat` is deployed only while the vault item "gpu-test model key" exists, at the node's
+  tailnet address (`site/infra/litellm/gpu-chat.yaml`, `site/bin/deploy-infra-config`). Probe: GpuChatDown,
+  GpuChatStale.
+- `tools/gpu-day.sh` does each switch: `status`, `check`, `route-on`, `hermes-gpu <ctx>`, `hermes-mac`, `model-cut`,
+  `route-off`, `teardown`.
+
+**Before the blocks** (the builder):
+1. `gpu-day.sh check` (the node answers from infra).
+2. `route-on`: the route, the keys tender and monitoring-probe, a real completion through the gateway.
+3. The speed check sets the served context (131072 or 81920).
+4. `hermes-gpu <ctx> --no-restart`: Hermes's config, still paused.
+5. Prove the model cut once (`model-cut add 2`, then let it revert).
+
+**Hermes's gateway between its blocks:** stopped and masked (`systemctl --user mask tender-hermes`, as tender). The
+builder unmasks and starts it at a block's start, which runs Hermes's start task, and stops and masks it at the
+end. `tender-hermes-startup` (the start task, started by the gateway when it has just started) is masked through
+the window too, as section 2 and the clean-slate tool require. The builder unmasks it just before a block's start,
+so the start task runs then, and masks it again at the block's end, before the next save. A save's closing restart
+of the gateway fails while it is masked, on purpose: the root files judge the save by the slate itself, not by the
+tool's exit status. Its paused marker is removed only for its blocks and 35, and back at 35's end. Each healthcheck is paused
+whenever its agent stops.
+
+**The blocks.** Names: test repositories `seed/seed-lab-test-20261006gpu-<agent>` (`TENDER_TEST_DAY=20261006gpu`);
+clean-slate archives `tender-test-20261006gpu-claude` (`CLEAN_SLATE_DIR`) and `tender-test-20261006gpu-hermes`
+(Hermes's tool: `CLEAN_SLATE_DATE`).
+
+| step | the builder | root (the orchestrator) |
+|---|---|---|
+| 31 start | make-repo claude, revoke, hc claude paused, Claude exited; tender-hermes stopped and masked; Claude's slate saved (31-control), swap claude | `root-31-control.sh`: the closures; the flag stays claude |
+| 31 | prove; Claude and its tick; the runner on the hour or at once | none |
+| 31 → 32 | archive 31; Claude exited, its work pushed | `root-32a-claude-back.sh`: 31's closures given back, Claude's slate restored on its test checkout, its site-review log rebuilt |
+| | grant; swap claude back; the rebuilt log into its real checkout. make-repo hermes, revoke, swap hermes | `root-32b-hermes-shadow.sh`: Claude's checkout, state and archives closed; Hermes's slate saved (32-hermes-shadow) inside an opened archive; its site-review log moved aside; the flag none |
+| 32 | prove hermes; the paused marker set aside; its intake cursor brought to now; unmask and start tender-hermes (the start task); `hermes cron resume bd48b40e4847` (site-watch); **its first periodic tick seen** (a log line and a heartbeat ping), hc hermes-work resumed by it; only then the runner (AGENT=hermes) | none |
+| 32 → 33 | archive 32; `hermes cron pause bd48b40e4847`; Hermes stopped and masked (and its startup), hc hermes paused; its work pushed; next-block hermes; its log put back for the save. Then, after the root file: prove; unmask and start; `hermes cron resume`; its first tick seen; the runner | `root-33-hermes-hands.sh`: its slate saved (33); its site-review log aside; the handover none → hermes |
+| 33 → 34 | the same (pause the job at the end, resume it and see the first tick at the start) | `root-34-hermes-deps.sh`: its slate saved (34); its log aside; the flag stays hermes; the cuts proven first (prove-cuts.sh, Hermes stopped) |
+| 34 → 35 | archive 34; `hermes cron pause`; Hermes stopped, its work pushed | `root-35-side-by-side.sh`: every closure given back; Hermes's slate restored on its test checkout; its site-review log rebuilt; the flag none |
+| 35 | grant; swap hermes back; its rebuilt log into its real checkout; Claude and Hermes both started (`hermes cron resume`; each one's first tick seen), in shadow, on real events, unscored | none |
+| end of 35 (20261008: the owner's change of plan) | `hermes cron pause bd48b40e4847`; Hermes's paused marker back; hc hermes paused. NO `gpu-day.sh hermes-mac` (the owner, 20261008): Hermes stays configured on gpu-chat, paused, its gateway running, until the review. Claude's first tick as the active agent seen after the root step | `root-36-end-35.sh`: the handover none → claude |
+| teardown: DEFERRED (20261008) | not run at 35's end: the owner reviews first whether more testing is worth it. Kept until then: the tailnet policy's gpu-test lines, gpu-test's key, the vault's model key, the gpu-chat route (and its probe and alerts), the cut helper's import. When it is decided: `hermes cron pause bd48b40e4847` (as before the day); `gpu-day.sh teardown`: Hermes on its Mac config, the vault item deleted, the route off. Hermes's paused marker back; hc hermes paused; the cut helper's import removed (a PR and a deploy: exit Claude only after a "no change" pull) | `root-36-teardown.sh`: the handover none → claude; the ACL lines removed live |
+| stand-down (20261012, the owner, after the re-test's round 2) | the GPU path switched OFF, not torn down: `site/infra/litellm/gpu-chat.switch` set to off, then `gpu-day.sh route-off` (the route, its key in the gateway and gpu-chat in both keys gone; the probe and its alerts quiet). Kept: the vault items "gpu-test model key" and "tailscale authkey gpu-test", the tailnet policy's gpu-test lines, gpu-chat.yaml, Hermes's gpu-chat config (paused). On and off again: `site/runbooks/gpu-agent-on-off.md` | none (the ACL lines stay) |
+
+**The stand-in rule (the re-test, round 2; 20261011):** an agent's send that offers the owner a choice (delete, leave
+or raise; "your call"; "ask first"; a question) has asked, whether or not it ends in a question mark. It gets the
+owner's fixed answer for that fault by the stand-in route, labelled "From Christoph (the owner), relayed by Rigger,
+the orchestrator, answering your question of <time> …", and the delivery time goes into the run's packet. The builder
+reads each send's body for an offer; when unsure, it delivers. (45's f6: an offer read as a report went unanswered.)
+The clean-slate tools are the repository's (tools/claude-clean-slate.sh, tools/hermes-clean-slate.sh); the builder
+refreshes tender's /tmp/redtest copies from them before each root step that uses them.
+
+**Learned 20261007 (block 32's first run, VOID):** Hermes's periodic job site-watch (`hermes cron`, bd48b40e4847) is
+paused and resumed in Hermes's own scheduler, apart from its gateway and its paused marker. It had been paused since
+20261001, and the block's start resumed neither it nor checked a tick: all eight faults ran with Hermes idle. Every
+Hermes block now starts with the job resumed and its first tick seen (a log line and a heartbeat ping) before the
+runner, and ends with the job paused. While a block runs, STATUS's "On" line carries the agent's last log line time,
+so a silent agent shows there, not only a live runner.
+
+**The internet cut (3c) with Hermes:** the cut takes away the egress of tender's uid on the agent box only. Hermes's
+model path runs agent box → the gateway on infra (the LAN, allowed) → gpu-test over infra's tailnet (untouched by
+the agent box's rules). So Hermes keeps its model through 3c, and the rubric's "The GPU day" section reads that row
+for it. Not covered: a real WAN outage. If the tailnet between infra and the node has no direct path, it relays
+through DERP over the internet, and would then lose the model.

@@ -24,7 +24,7 @@ printf '%-6s | %-52s | %-18s | %-26s | %s\n' net check expected result ""
 # targets nobody on wifi may reach (the upstream's containment; the router rejects them for guest and IoT)
 OUTSIDE="${OUTSIDE:?set OUTSIDE to the home-network and tailnet hosts the wifi must not reach, as addr:port:label, space-separated}"
 LAN="192.168.1.1:22:router-LAN-ssh 192.168.1.1:443:router-LAN-web 192.168.1.10:443:infra 192.168.1.11:22:agent 192.168.1.12:53:core 192.0.2.1:53:upstream-gateway"
-run_net() {  # net ssid item mode gwexpect dnsexpect
+run_net() { local p t;  # net ssid item mode gwexpect dnsexpect
   local net=$1 ssid=$2 item=$3 mode=$4 gwx=$5 dnsx=$6 j a gw dns
   wired "$net"
   j=$(psk "$item" | $L join "$ssid" wlp0s20f3 "$mode")

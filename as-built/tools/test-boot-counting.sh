@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../nixos"
 S=$(nix build --no-link --print-out-paths .#nixosConfigurations.agent.config.system.build.seedArmBootCounting)
 fail=0; ok() { echo "ok:   $1"; }; bad() { echo "FAIL: $1"; fail=1; }
-mk() {  # a scratch /boot: entries for the given generations, loader.conf choosing the newest
+mk() { local g;  # a scratch /boot: entries for the given generations, loader.conf choosing the newest
   T=$(mktemp -d); mkdir -p $T/loader/entries
   for g in "$@"; do echo "title NixOS $g" > $T/loader/entries/nixos-generation-$g.conf; done
   printf 'timeout 5\ndefault nixos-generation-%s.conf\n' "${@: -1}" > $T/loader/loader.conf

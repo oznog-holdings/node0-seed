@@ -1,0 +1,9 @@
+# The GPU agent path's switch (site/runbooks/gpu-agent-on-off.md): its last line that isn't a comment, exactly "on" or
+# "off" (anything else stops the deploy).
+# site/bin/deploy-infra-config deploys the gpu-chat route (gpu-chat.yaml) and the gateway's GPU_TEST_API_KEY only while
+# this says "on" (and the vault item "gpu-test model key" exists and gpu-test is on the tailnet). With the route gone,
+# seed-metrics.sh stops probing gpu-chat, so GpuChatDown, GpuChatFlapping and GpuChatStale have no series.
+# OFF since 20261012: the owner stood the GPU path down. Everything needed to turn it
+# on again is kept: gpu-chat.yaml, both vault items, the tailnet policy's gpu-test lines, Hermes's config render
+# (tools/gpu-day.sh hermes-gpu). On again: "on" here, a deploy (tools/gpu-day.sh route-on), as the runbook says.
+off

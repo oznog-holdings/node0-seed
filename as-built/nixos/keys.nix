@@ -10,15 +10,12 @@
   # the builder on the agent box (seed-builder@agent): used where the agent box itself deploys to
   # a machine, today only the sandbox (on production hosts it is added through their own records)
   builderAgent = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
-  # the window's log for the owner (rung 6): put in ~agent/.ssh/authorized_keys by the orchestrator at the
-  # owner's request (20260929) and declared here after the first window. Forced command: prints the cut-over
-  # log, nothing else (restrict: no pty, no forwarding).
-  cutoverLogReader = ''command="cat /var/tmp/seed-cutover/latest.log 2>/dev/null || echo no log yet",restrict ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY
   # the site agents (tender: Hermes, Claude Code, Codex), from ~tender/.ssh on the agent box (20260930); the private
   # key's copy is the vault item "tender ssh key". Revoke everywhere: tools/site-agents-revoke.sh
   tender = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
   # the owner's own machines: authorized for tender (the site agents' account) at his request, 20260930, so his herdr
-  # (herdr-mirror) can show and drive the agents' sessions. ownerMbp is the same key as cutoverLogReader's, unrestricted here
+  # (herdr-mirror) can show and drive the agents' sessions; on the agent account too (20261008, in place of rung 6's
+  # forced-command log reader on the same key: the cut-over log is read by a normal login now)
   ownerMbp = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
   ownerFwl = "ssh-ed25519 AAAA...REPLACE-WITH-YOUR-PUBLIC-KEY";
   # lab fixture, not part of the site: the orchestrator's key (annex). Remove at teardown.

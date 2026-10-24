@@ -52,3 +52,5 @@ rule=secret-assignment re:'(?:aws-access-token|private-key|seed-age-secret-key|s
 rule=secret-assignment secrets: gitleaks # a comment naming the secret scanner, not a value
 rule=secret-assignment token=AbC123xyz # a made-up token in a redactor bypass test
 rule=secret-assignment tokenize=False) # a tokenizer argument in the encoder service, not a secret
+rule=secret-assignment re:.*(?:secret: this|API_KEY: \$\(gwenv).* # prose about the shared account, and a log of whether a key is set; no value
+rule=secret-assignment re:.*(?:token: Alertmanager|TOKEN_EXPIRES=20\d\d-\d\d-\d\d).* # prose naming which login signs in, and a token's expiry date; no value

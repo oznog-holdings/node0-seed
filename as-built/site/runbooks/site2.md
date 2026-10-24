@@ -49,8 +49,9 @@ the forge's own data.
    - Options: `--no-sync-snap --use-hold --no-resume --compress=none --no-clone-handling`, receive
      with `-u`. The newest common snapshot is held on both sides (`syncoid_site2`), so pruning on
      either side can't break the chain.
-3. **Transport:** infra's sshd listens on its tailnet address too. At boot `sshd-tailnet.sh` (User
-   Scripts, at array start) waits for tailscale1, then runs Unraid's `rc.sshd update`.
+3. **Transport:** infra's sshd listens on its tailnet address too. `sshd-tailnet.sh` (User
+   Scripts, every 5 min: not at array start; after a reboot it is up within 5 min, 20261024) waits for tailscale1,
+   then runs Unraid's `rc.sshd update`.
    `check-after-reboot` checks it.
 4. **Encryption and pruning:** the replica lands in `site2/seed`, natively encrypted (aes-256-gcm,
    keyformat hex). The received datasets inherit it (encryption root `site2/seed`), read-only,

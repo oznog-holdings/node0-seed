@@ -1,0 +1,22 @@
+# The test archive's secret scan (tools/tender-test-archive.py): the site's rules (the inference encoders' file,
+# unchanged), with one exemption for the archive only (the re-test, round 2, item 17; 20261011): the shell's working
+# directory, "PWD = /path" or "PWD=$VAR" or "PWD = \…", matched the unquoted-password rule (44's f6 packet).
+title = "seed: the test archive's scan"
+
+[extend]
+path = "/work/agent/seed-lab/site/laptop/inference/encoders/gitleaks.toml"   # absolute: gitleaks resolves it from the working directory
+
+[[rules]]
+id = "seed-unquoted-password"
+description = "A password assigned an unquoted value of some entropy (password=..., password: ...); not the shell's PWD"
+regex = '''(?i)\b(?:pass(?:word|wd|phrase)?|pwd)\b\s*[:=]\s*([^\s"'<>{}\[][^\s"'<>{}]{7,})'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["pass", "pwd"]
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = [
+  # only the shell's working directory: an assignment to a path under the site's own top folders, or a variable
+  '''^PWD\s*=\s*/(?:home|work|tmp|run|nix|etc|mnt|var|root)/[\w./-]*$''',
+  '''^PWD\s*=\s*\$\{?[A-Z_]+\}?[\w./-]*$''',
+]

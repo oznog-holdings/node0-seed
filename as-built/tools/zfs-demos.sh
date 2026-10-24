@@ -32,7 +32,7 @@ guard() {
   [ -z "$NEVER" ] || [ "$1" != "$NEVER" ] || { echo "guard: $NEVER is never used"; exit 1; }
   echo "$d"
 }
-special() {
+special() { local f i;
   note "== the special vdev: a throwaway pool on the spare 1 TB, with the empty Optane as its special vdev"
   B=$(guard $BIG) || { echo "$B"; exit 1; }; S=$(guard $SMALL) || { echo "$S"; exit 1; }
   BI=/dev/disk/by-id/$(ls /dev/disk/by-id | grep -E "_${BIG}\$" | head -1); SI=/dev/disk/by-id/$(ls /dev/disk/by-id | grep -E "_${SMALL}\$" | head -1)
@@ -66,7 +66,7 @@ special() {
   run lsblk -o NAME,SERIAL,FSTYPE,PARTUUID "$B" "$S"
   run zpool list -o name,size,alloc,health
 }
-mirror() {
+mirror() { local i;
   note "== a mirrored special vdev: data on the spare 1 TB, the special vdev a mirror of both Optanes"
   B=$(guard $BIG) || { echo "$B"; exit 1; }; S=$(guard $SMALL) || { echo "$S"; exit 1; }; S2=$(guard $SMALL2) || { echo "$S2"; exit 1; }
   id() { echo /dev/disk/by-id/$(ls /dev/disk/by-id | grep -E "_${1}\$" | head -1); }
@@ -97,7 +97,7 @@ mirror() {
   run lsblk -o NAME,SERIAL,FSTYPE,PARTUUID "$B" "$S" "$S2"
   run zpool list -o name,size,alloc,health
 }
-raidz() {
+raidz() { local f;
   note "== raidz expansion on file vdevs (in RAM; the data pool untouched)"
   mkdir -p /tmp/zfiles; for f in f1 f2 f3 f4 m1 m2 m3; do truncate -s 512M /tmp/zfiles/$f; done
   run zpool create -o ashift=12 -O compression=off -R /tmp/zr rz raidz1 /tmp/zfiles/f1 /tmp/zfiles/f2 /tmp/zfiles/f3

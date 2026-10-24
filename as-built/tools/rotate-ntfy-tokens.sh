@@ -25,7 +25,7 @@ trap 'lock; unset OLD NEW' EXIT
 account() { printf 'header = "Authorization: Bearer tk_%s"\n' "$1" | curl -s -K - -o /dev/null -w '%{http_code}' https://ntfy.seed.example.com/v1/account; }
 h() { printf '%s' "$1" | sha256sum | cut -c1-12; }
 vault() { ( exec 9>/tmp/reh/bw.lock; flock 9; "$@" ); }
-deploy() {  # deploy <title> <hosts: core|agent|both>
+deploy() { local i;  # deploy <title> <hosts: core|agent|both>
   git push -q forge main; git fetch -q forge; local hh=$(git rev-parse forge/main) n st; . /tmp/forge.sh
   n=$(forge POST /repos/seed/seed-lab/pulls "$(jq -nc --arg t "$1" '{base: "deploy", head: "main", title: $t}')" | jq -r .number)
   for i in $(seq 1 90); do st=$(forge GET /repos/seed/seed-lab/commits/$hh/status | jq -r .state); case $st in success|failure|error) break;; esac; sleep 20; done

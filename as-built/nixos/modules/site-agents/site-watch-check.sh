@@ -10,6 +10,17 @@
 set -uo pipefail
 export SITE_AGENT=${SITE_AGENT:-hermes}
 S=$HOME/.local/state/site-watch; mkdir -p -m 700 "$S"
+# the previous run (20261008): woken, and no heartbeat since → the check's fail endpoint, so the owner hears within
+# one run, a crash included. A deliberate stop clears the stamp first (rm ~/.local/state/site-watch/run-woken)
+H=$HOME/.local/state/site-heartbeat
+if [ -e "$S/run-woken" ]; then
+  w=$(cat "$S/run-woken"); l=$(cat "$H/$SITE_AGENT.last" 2>/dev/null || echo 0)
+  if [ "$l" -lt "$w" ] && [ "$(cat "$S/hungfail" 2>/dev/null)" != "$w" ]; then   # not twice: the hang check may have sent it
+    site-heartbeat --fail "site-watch's run woken at $(date -u -d @"$w" +%H:%MZ) ended with no heartbeat" >/dev/null 2>&1 || true
+  fi
+  rm -f "$S/run-woken" "$S/hungfail"
+fi
+woke=1; trap '[ $woke = 1 ] && date +%s > "$S/run-woken"' EXIT   # every exit below wakes Hermes, but the healthy one
 log=${SEED_REPO:-/work/tender/hermes/seed-lab}/site/agents/log/hermes.md
 now=$(date -u +%FT%TZ)
 new=$(site-intake next 2>&1); rc=$?                 # 0 something new, 1 nothing new, 2 or 3 (or other) the intake is broken
@@ -54,7 +65,7 @@ if [ $rc -eq 1 ] && [ $frc -eq 0 ] && { [ "$set_now" = none ] || { [ "$set_now" 
   if ! hb=$(site-heartbeat 2>&1); then
     echo "site-watch-check: the intake was healthy, acked and logged, but site-heartbeat failed: $hb"; exit 0
   fi
-  echo '{"wakeAgent": false}'
+  woke=0; echo '{"wakeAgent": false}'
   exit 0
 fi
 # wake Hermes: record the firing set it is woken for, and hand it what the check saw

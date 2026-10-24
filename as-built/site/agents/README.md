@@ -87,4 +87,9 @@ forge token ever reaching you (20261004).
   - Codex 0.159.2;
   - herdr 0.9.3;
   - Hermes Agent v2026.9.24 (v0.21.5, commit f97608f1).
+  - Hermes's model-provider plugin claude-subscription-directsdk 0.3.3 (Nous Research, hermes-official-plugins at
+    adfe037; installed by `tools/hermes-sonnet.sh install`, manifest sha256 1381cc50… (C locale); site/runbooks/hermes-sonnet-on-off.md).
+- **The Claude Code token** (CLAUDE_CODE_OAUTH_TOKEN, both agents' claude): made by the owner 20260929 with
+  `claude setup-token`, in the vault as "claude code tender token" (20260930); expected to expire about **20270929**.
+  Renewal: site/runbooks/hermes-sonnet-on-off.md › The token.
 - **Revoke everything:** `tools/site-agents-revoke.sh`.

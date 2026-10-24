@@ -185,10 +185,10 @@ tests:
         exp_alerts:
           - exp_labels: { severity: warning, dataset: data/scratch, host: infra }
             exp_annotations: { summary: "data/scratch is at 90% of its quota." }
-      - eval_time: 50m
+      - eval_time: 30m
         alertname: RebootRequired
         exp_alerts: []
-      - eval_time: 70m
+      - eval_time: 40m
         alertname: RebootRequired
         exp_alerts:
           - exp_labels: { severity: warning, host: agent, reason: kernel }

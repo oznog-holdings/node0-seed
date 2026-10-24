@@ -30,7 +30,7 @@ v() {  # exact item name, field (password|username)
 bcrypt() { nix-shell -p apacheHttpd --run 'htpasswd -niB -C 10 x' 2>/dev/null | cut -d: -f2- | tr -d '\n' | sed 's/^\$2y\$/$2a$/'; }
 line() {  # NAME value: single-quoted for `. file`; refuse a value that would break the quoting
   [[ -n $2 && $2 != *"'"* && $2 != *$'\n'* ]] || { echo "unusable value for $1" >&2; return 1; }; printf "%s='%s'\n" "$1" "$2"; }
-gen() {  # every line, or nothing: a failed value stops here, before age writes anything
+gen() { local u;  # every line, or nothing: a failed value stops here, before age writes anything
   local x   # each lookup checked on its own: a failed one inside "tk_$(…)" would still look like a value
   x=$(v 'ntfy core phone' password) || return 1; line NTFY_PHONE_HASH "$(printf '%s' "$x" | bcrypt)" || return 1
   for u in alertmanager watcher power tender orchestrator; do   # tender: the site agents; orchestrator: read-only (20260930)

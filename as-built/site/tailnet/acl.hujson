@@ -4,6 +4,8 @@
 {
     "tagOwners": {
         "tag:site2": ["autogroup:admin"],
+        // the GPU test node (20261006, one day): removed at teardown
+        "tag:gpu-test": ["autogroup:admin"],
     },
 
     "hosts": {
@@ -14,12 +16,18 @@
 
     "acls": [
         // the owner's own devices reach each other and the site's LAN, as before
-        {"action": "accept", "src": ["autogroup:member"], "dst": ["autogroup:member:*", "seed-lan:*"]},
+        {
+            "action": "accept",
+            "src":    ["autogroup:member"],
+            "dst":    ["autogroup:member:*", "seed-lan:*"],
+        },
         // site2: infra's ssh, and nothing else
         {"action": "accept", "src": ["tag:site2"], "dst": ["infra:22"]},
         // only the agent box and infra reach site2's ssh; infra reads site2's node_exporter
         {"action": "accept", "src": ["agent", "infra"], "dst": ["tag:site2:22"]},
         {"action": "accept", "src": ["infra"], "dst": ["tag:site2:9100"]},
+        // the GPU test node (20261006, one day): only infra (the gateway and its probe) reaches its model port; it reaches nothing
+        {"action": "accept", "src": ["infra"], "dst": ["tag:gpu-test:8080"]},
     ],
 
     // Tailscale SSH: unchanged from the default
@@ -38,6 +46,15 @@
             "src":    "tag:site2",
             "accept": ["infra:22"],
             "deny":   ["agent:22", "infra:443", "192.168.1.12:22"],
+        },
+        {
+            "src":  "tag:gpu-test",
+            "deny": ["infra:22", "infra:443", "infra:4000", "agent:22", "192.168.1.1:22", "192.168.1.12:22"],
+        },
+        {
+            "src":    "infra",
+            "accept": ["tag:gpu-test:8080"],
+            "deny":   ["tag:gpu-test:22"],
         },
     ],
 }

@@ -59,12 +59,38 @@ printf 'POSTGRES_PASSWORD=%s\nLITELLM_DB_PASSWORD=%s\nNETBOX_DB_PASSWORD=%s\n' "
 # z.ai: the owner's GLM Coding Plan key (20260927, the owner's decision for configuration, testing and
 # proof; F-ZAI-CODING-PLAN). Rendered whenever the vault item exists; the payg-only guard of the
 # same day is undone (diary 20260927).
+# the GPU agent path's switch (infra/litellm/gpu-chat.switch, its last line "on" or "off"; off since 20261012): off,
+# neither its key nor its route is deployed, whatever the vault holds (site/runbooks/gpu-agent-on-off.md)
+gsw=$(awk '{ sub(/#.*/, ""); gsub(/^[ \t]+|[ \t]+$/, ""); if ($0 != "") v = $0 } END { print v }' infra/litellm/gpu-chat.switch)
+case $gsw in on|off) ;; *) echo "infra/litellm/gpu-chat.switch: '$gsw', not on or off: stopped" >&2; exit 1 ;; esac
+gpuk=""
+[ "$gsw" = on ] && gpuk=$(bw list items --search 'gpu-test model key' | jq -r '[.[] | select(.name=="gpu-test model key")] | if length==1 then .[0].login.password else "" end')
 zai=$(bw list items --search 'zai api key' | jq -r '[.[] | select(.name=="zai api key")] | if length==1 then .[0].login.password else "" end')
 { printf 'DATABASE_URL=postgresql://litellm:%s@db.internal:5432/litellm\nLITELLM_MASTER_KEY=sk-%s\nLITELLM_SALT_KEY=sk-%s\nCOMPUTE_LLAMA_API_KEY=%s\n' \
   "$pl" "$(bw get password 'litellm master key')" "$(bw get password 'litellm salt key')" "$(bw get password 'compute llama api key')"
   if [ -n "$zai" ]; then printf 'ZAI_API_KEY=%s\n' "$zai"; fi
+  # the GPU day (20261006): gpu-test's model key, while the vault item exists (its route is spliced in below)
+  if [ -n "$gpuk" ]; then printf 'GPU_TEST_API_KEY=%s\n' "$gpuk"; fi
   # every rpm_limit on this gateway counts per hour, not per minute (the Coding Plan's quota is hourly)
   printf 'LITELLM_RATE_LIMIT_WINDOW_SIZE=3600\n'; } | put_env litellm.env "" replace; unset zai
+# the gateway's config as deployed: the repository's, plus the gpu-chat route only while its key exists and the node
+# is on the tailnet (the GPU day, 20261006); otherwise exactly the repository's file
+LITELLM_CONF=$(mktemp /dev/shm/litellm-config.XXXXXX); cp infra/litellm/config.yaml $LITELLM_CONF
+if [ -n "$gpuk" ]; then
+  gip=$(ssh $INFRA "tailscale status --json" | jq -r '[.Peer[] | select(.HostName=="gpu-test") | .TailscaleIPs[0]] | first // empty')
+  if [ -n "$gip" ]; then
+    python3 - "$LITELLM_CONF" infra/litellm/gpu-chat.yaml "$gip" <<'PY'
+import sys
+conf, route, ip = sys.argv[1:]
+c = open(conf).read(); r = open(route).read().replace('@GPU_TEST_IP@', ip)
+assert c.count('\nrouter_settings:') == 1
+open(conf, 'w').write(c.replace('\nrouter_settings:', '\n' + r + '\nrouter_settings:', 1))
+PY
+    echo "gpu-chat: route spliced in (gpu-test at its tailnet address)"
+  else echo "gpu-chat: the key exists but gpu-test isn't on the tailnet: route NOT deployed"; fi
+elif [ "$gsw" = off ]; then echo "gpu-chat: switched off (infra/litellm/gpu-chat.switch): route not deployed"
+else echo "gpu-chat: no key in the vault: route not deployed"; fi
+unset gpuk
 # the monitoring probe's gateway key (seed-metrics.sh section 8: the self-test and the rung-4 backend)
 # (the vault holds the key without its sk- prefix)
 printf 'GATEWAY_PROBE_KEY=sk-%s\n' "$(bw get password 'gateway key monitoring-probe')" | put_env monitoring-probe.env "" replace
@@ -97,8 +123,10 @@ fi
 ssh $INFRA "mkdir -p /mnt/data/backups/rest && chmod 700 /mnt/data/backups/rest"
 ssh $INFRA "mkdir -p $A/postgres/data $A/postgres/initdb $A/postgres/dumps $A/litellm $A/valkey/data $A/netbox/media $A/netbox/reports $A/netbox/scripts && chown 999:1000 $A/valkey/data && chown 999:0 $A/netbox/media $A/netbox/reports $A/netbox/scripts"
 for f in postgres/10-seed-roles.sh:$A/postgres/initdb/10-seed-roles.sh litellm/config.yaml:$A/litellm/config.yaml; do
-  src=infra/${f%%:*}; dst=${f#*:}; ssh $INFRA "cat > $dst.new && chmod 644 $dst.new && mv $dst.new $dst" < "$src"
+  src=infra/${f%%:*}; dst=${f#*:}; [ "$src" = infra/litellm/config.yaml ] && src=$LITELLM_CONF   # as rendered above
+  ssh $INFRA "cat > $dst.new && chmod 644 $dst.new && mv $dst.new $dst" < "$src"
 done
+rm -f $LITELLM_CONF
 # what infra now holds (hashes and modes only)
 ssh $INFRA "cd $A && sha256sum chrony/chrony.conf caddy/Caddyfile && stat -c '%a %U %n' $S/caddy.env $S/vaultwarden.env $S/restic-infra.env $S/postgres.env $S/litellm.env $S/valkey.conf $S/netbox.env && grep -c . $S/caddy.env"
 sha256sum infra/chrony/chrony.conf infra/caddy/Caddyfile

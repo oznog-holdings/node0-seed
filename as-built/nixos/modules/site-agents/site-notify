@@ -1,8 +1,18 @@
 #!/bin/sh
 # site-notify [--urgent] "title" "message": post to the owner's phone on core's ntfy, topic seed-agents (the site
 # agents' own topic; the alert topic `seed` stays Alertmanager's). Plain text, no secrets (the rulebook).
-p=default; [ "${1:-}" = --urgent ] && { p=urgent; shift; }
-t=${1:?title}; m=${2:?message}
+# options (20261008: a call with an unknown option once arrived with the option as its title and the message lost):
+# --urgent, or --priority default|high|urgent; anything else, or a title that starts with "-", is refused, unsent
+u() { echo "usage: site-notify [--urgent | --priority default|high|urgent] \"title\" \"message\"  (nothing sent)" >&2; exit 2; }
+p=default
+case "${1:-}" in
+  --urgent) p=urgent; shift ;;
+  --priority) case "${2:-}" in default|high|urgent) p=$2; shift 2 ;; *) u ;; esac ;;
+  -*) u ;;
+esac
+[ $# = 2 ] && [ -n "$1" ] && [ -n "$2" ] || u
+case $1 in -*) u ;; esac
+t=$1; m=$2
 # the token on curl's stdin (a config line), never its argv (20261003)
 printf 'header = "Authorization: Bearer tk_%s"\n' "$(cat /run/secrets/tender_ntfy_token)" | curl -fsS -m 15 -o /dev/null -K - \
   -H "Title: $t" -H "Priority: $p" -H "Tags: ${SITE_AGENT:-tender}" -d "$m" https://ntfy.seed.example.com/seed-agents \

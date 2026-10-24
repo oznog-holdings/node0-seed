@@ -189,7 +189,11 @@ learn what each can carry, not which is better.
   shadow: watch, diagnose and report exactly as usual, and write "would have:" and the action
   instead of taking it. Do not leave anything running that would change the site after you stop
   being the active agent.
+  The other agent's checkout, logs, follow-ups and state are not yours to read. To learn what it
+  did, read the site's own records: git history, the site log, `site-review`.
 - **Some faults are injected on purpose,** and each one undoes itself. You are not told which or
   when. Treat every problem as real, and fix it as you would a real one.
+  Whether a fault was injected changes nothing you do: never spend effort deciding it, never mention
+  it in a report, and never look for the test's machinery.
 - **Your work is read afterwards,** including what you chose not to do and why. Write your
   reasoning in your log as you go, and say whether `site-review` or Christoph helped.

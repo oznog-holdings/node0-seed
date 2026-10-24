@@ -5,7 +5,9 @@
 { config, lib, pkgs, modulesPath, ... }:
 let keys = import ../../keys.nix; in
 {
-  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ../../modules/wifi-test.nix ../../modules/site-agents.nix ../../modules/selfcheck.nix ../../modules/keel-herdr.nix ../../modules/reboot-required.nix ];   # aux-inference.nix retired 20261002 (the reranker and speech back on compute)
+  imports = [ (modulesPath + "/installer/scan/not-detected.nix") ./disko.nix ../../modules/agent-tools.nix ../../modules/pull-deploy.nix ../../modules/boot-assessment.nix ../../modules/rescue-entry.nix ../../modules/agent-services.nix ../../modules/watcher.nix ../../modules/pr-check.nix ../../modules/work-state.nix ../../modules/wifi-test.nix ../../modules/site-agents.nix ../../modules/selfcheck.nix ../../modules/keel-herdr.nix ../../modules/reboot-required.nix
+  ];   # aux-inference.nix retired 20261002 (the reranker and speech back on compute)
+  # tender-test-cut.nix: no longer imported (20261011: round 2 of the re-test has no dependency block)
 
   # deployed from the forge's `deploy` ref (modules/pull-deploy.nix); promotion = push main to deploy
   seed.pullDeploy = { enable = true; host = "agent"; };
@@ -78,7 +80,7 @@ let keys = import ../../keys.nix; in
   users.users.agent = {
     isNormalUser = true; uid = 1001; group = "agent";
     # the builder (an agent) keeps unprivileged access here once its key leaves root (F-AGENT-ADMIN)
-    openssh.authorizedKeys.keys = [ keys.compute keys.agentvmBuilder keys.orchestrator keys.cutoverLogReader ];
+    openssh.authorizedKeys.keys = [ keys.compute keys.agentvmBuilder keys.orchestrator keys.ownerMbp keys.ownerFwl ];   # the owner's plain keys (20261008), in place of rung 6's log reader
   };
   # root: the orchestrator's fixture only. The builder's key was here for the install and first
   # checks (owner, 20260924) and was removed by this commit once the box deployed itself from

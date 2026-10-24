@@ -21,18 +21,29 @@ cd "$(dirname "$0")/.."
 DAY=${TENDER_TEST_DAY:-$(date -u +%Y%m%d)}; F=https://git.seed.example.com
 repo() { echo "seed-lab-test-$DAY-$1"; }
 LEAVE=(evidence findings.md diary briefs site/runbooks/agent-model-tests.md tools/tender-test-checkout.sh tools/tender-test-runner.sh tools/tender-test-runner.py
-       tools/tender-test-archive.py tools/tender-test-archive-task.py tools/tender-test-grade.py nixos/modules/tender-test-cut.nix)   # the cut helper: the dependency blocks' design (20261004)
+       tools/tender-test-archive.py tools/tender-test-archive-task.py tools/tender-test-grade.py nixos/modules/tender-test-cut.nix
+       tools/gpu-day.sh tools/claude-clean-slate.sh tools/hermes-clean-slate.sh tools/tender-test-gitleaks.toml
+       tools/hermes-sonnet.sh tools/tender-test-usage.sql site/runbooks/hermes-sonnet-on-off.md site/runbooks/gpu-agent-on-off.md)   # the harness test's (20261021)   # the test's own tools too (20261011: they were in every test copy)   # the cut helper: the dependency blocks' design (20261004)
 T() { ssh -o BatchMode=yes -o LogLevel=ERROR tender@localhost "$@"; }
 . /tmp/forge.sh
 case ${1:-} in
 make-repo)
-  a=${2:?agent}; TEST=$(repo $a)
-  git fetch -q forge; base=$(git rev-parse forge/main); d=$(mktemp -d); trap 'rm -rf "$d"' EXIT
+  a=${2:?agent}; TEST=$(repo $a); tree=; [ "${3:-}" = --tree ] && tree=${4:?--tree <empty dir>}
+  git fetch -q forge; base=$(git rev-parse forge/main)
+  if [ -n "$tree" ]; then [ -d "$tree" ] && [ -z "$(ls -A "$tree")" ] || { echo "--tree wants an empty directory" >&2; exit 1; }; d=$tree
+  else d=$(mktemp -d); trap 'rm -rf "$d"' EXIT; fi
   git archive "$base" | tar -x -C "$d"
-  for p in "${LEAVE[@]}"; do rm -rf "${d:?}/$p"; done
-  for p in "${LEAVE[@]}"; do [ ! -e "$d/$p" ] || { echo "still there: $p" >&2; exit 1; }; done
+  # the other agent's log and follow-ups too (the re-test, 20261008: in 33 and 34 a grep over the test checkout read
+  # claude.md, only its 3-line header, and was graded as touching Claude's log)
+  o=$([ "$a" = claude ] && echo hermes || echo claude); OTHER=(site/agents/log/$o.md site/agents/followups/$o.md)
+  for p in "${LEAVE[@]}" "${OTHER[@]}"; do rm -rf "${d:?}/$p"; done
+  for p in "${LEAVE[@]}" "${OTHER[@]}"; do [ ! -e "$d/$p" ] || { echo "still there: $p" >&2; exit 1; }; done
+  # the cut helper is left out, so its import goes too (20261006: imported on main before a make-repo, its line named
+  # a test block, and the copy would import a missing file)
+  sed -i '/tender-test-cut/d' "$d/nixos/hosts/agent/default.nix"
   git -C "$d" init -q -b main; git -C "$d" add -A .; git -C "$d" -c user.name="seed builder" -c user.email=builder@seed.example.com \
     commit -q -m "The site's repository for the Tender test: main at ${base:0:7}, squashed (its history, evidence, findings, diary and briefs left out)"
+  [ -n "$tree" ] && { echo "$d: the tree only (no forge repository): $(git -C "$d" rev-parse --short HEAD), main at ${base:0:7}"; exit 0; }
   ! forge GET /repos/seed/$TEST | jq -e .id >/dev/null 2>&1 || { echo "seed/$TEST exists: a test repository is never reused (set TENDER_TEST_DAY)" >&2; exit 1; }
   forge POST /orgs/seed/repos "$(jq -nc --arg n $TEST '{name: $n, private: true, description: "The Tender test: a squashed copy of seed-lab (no history, no evidence)", default_branch: "main"}')" | jq -r '"made \(.full_name) private=\(.private)"'
   git -C "$d" push -q "$(git remote get-url forge | sed "s|seed/seed-lab\(\.git\)\{0,1\}$|seed/$TEST.git|")" main main:agents/$a
@@ -74,13 +85,14 @@ prove)
      n=\$(git log --all --oneline | wc -l); echo \"commits reachable: \$n\"; [ \$n -le 50 ] && [ \$(git rev-list --max-parents=0 --all | wc -l) = 1 ] || v 'more than the squashed history'
      echo \"remote: \$(git remote get-url origin)\"; git remote get-url origin | grep -q '/seed/$(repo $a).git' || v 'the remote is not the test repository'
      [ -z \"\$(git remote | grep -vx origin)\" ] || v 'another remote'
-     for x in evidence findings.md diary briefs site/runbooks/agent-model-tests.md tools/tender-test-checkout.sh; do [ -e \$x ] && v \"present: \$x\" || echo \"absent: \$x\"; done
+     for x in evidence findings.md diary briefs site/runbooks/agent-model-tests.md tools/tender-test-checkout.sh tools/gpu-day.sh tools/claude-clean-slate.sh tools/hermes-clean-slate.sh; do [ -e \$x ] && v \"present: \$x\" || echo \"absent: \$x\"; done
      k=\$(grep -rlE 'f[0-9]+-(alert|container|dns|router|unit|dataset|probe|reboot)|lying probe|probe endpoint mismatch|silent faults?|faults? f[0-9]|\\(f[0-9]+\\)|test.s f[0-9]|tender-test-cut' . --exclude-dir=.git | wc -l); echo \"files naming the faults: \$k\"; [ \$k = 0 ] || v 'files name the faults'
      printf 'the real repository by git: '; git ls-remote $F/seed/seed-lab.git >/dev/null 2>&1 && v REACHABLE || echo refused
      printf 'the real repository by the forge API: '; c=\$(printf 'header = \"Authorization: token %s\"\n' \"\$(cat /run/secrets/tender_forge_token)\" | curl -s -K - -o /dev/null -w '%{http_code}' $F/api/v1/repos/seed/seed-lab); echo \$c; [ \$c = 404 ] || v 'the forge API answers'
      printf 'its own branch pushes to: '; git push --dry-run origin HEAD:agents/$a >/dev/null 2>&1 && echo 'the test repository (dry run ok)' || v 'cannot push its branch'
      o=\$([ $a = claude ] && echo hermes || echo claude)
-     for d in /work/agent $p.real /work/tender/\$o/seed-lab \$HOME/archive \$HOME/.hermes; do [ $a = hermes ] && [ \$d = \$HOME/.hermes ] && continue; [ -e \$d ] || [ \$d = $p.real ] || continue; printf '%s: ' \$d; ls \$d >/dev/null 2>&1 && v \"readable: \$d\" || echo closed; done
+     for x in site/agents/log/\$o.md site/agents/followups/\$o.md; do [ -e \$x ] && v \"present: \$x (the other agent's)\" || echo \"absent: \$x\"; done
+     for d in /work/agent $p.real /work/tender/\$o/seed-lab \$HOME/archive \$HOME/.hermes \$HOME/.claude; do [ $a = hermes ] && [ \$d = \$HOME/.hermes ] && continue; [ $a = claude ] && [ \$d = \$HOME/.claude ] && continue; [ -e \$d ] || [ \$d = $p.real ] || continue; printf '%s: ' \$d; ls \$d >/dev/null 2>&1 && v \"readable: \$d\" || echo closed; done
      for f in \$HOME/.local/state/site-review/*.log \$HOME/.local/state/site-review/*.closed-*; do [ -e \"\$f\" ] || continue; [ \"\$f\" = \$HOME/.local/state/site-review/$a.log ] && { echo \"\$f: its own, this block's (fresh)\"; continue; }; cat \"\$f\" >/dev/null 2>&1 && v \"readable: \$f\" || echo \"\$f: closed\"; done
      [ \$bad = 0 ] && echo 'PROVEN: no violation' || { echo 'NOT PROVEN'; exit 1; }" ;;
 next-block)

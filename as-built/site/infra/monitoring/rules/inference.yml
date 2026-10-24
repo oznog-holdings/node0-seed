@@ -13,9 +13,27 @@ groups:
       # From 20261002 only local-embed is probed (the chat models load on demand and swap: a probe would load one): stale
       # after 20 minutes.
       - alert: InferenceBackendStale
-        expr: (time() - seed_inference_last_success_timestamp_seconds) > 20 * 60
+        expr: (time() - seed_inference_last_success_timestamp_seconds{route!="gpu-chat"}) > 20 * 60
         labels: { severity: warning }
         annotations: { summary: "No answer from compute ({{ $labels.route }}) through the gateway for {{ $value | humanizeDuration }}. On compute: ~seed/.local/state/seed/inference/status and events.log (yielded or held?), launchctl print system/co.oznog.seed.inference." }
+      # the GPU day's route (20261006): its probe runs only while the route is deployed, so these can't fire before or
+      # after the day; a route the agent depends on, so a failure is the orchestrator's to see at once
+      - alert: GpuChatDown
+        expr: seed_inference_probe_success{route="gpu-chat"} == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations: { summary: "gpu-chat (gpu-test's model through the gateway) hasn't answered for 10 minutes: the node, its tailnet path from infra, or its key." }
+      # failing on and off (20261010: the GPU node's crash loop failed every second probe for four days, and
+      # GpuChatDown, which needs 10 minutes of failure in a row, never fired)
+      - alert: GpuChatFlapping
+        expr: avg_over_time(seed_inference_probe_success{route="gpu-chat"}[30m]) < 0.8 and on(route) seed_inference_probe_success{route="gpu-chat"}   # only while the probe runs (not after a teardown)
+        for: 15m
+        labels: { severity: warning }
+        annotations: { summary: "gpu-chat is failing on and off: {{ $value | humanizePercentage }} of its probes answered in the last 30 minutes (the node restarting, or its path from infra)." }
+      - alert: GpuChatStale
+        expr: (time() - seed_inference_last_success_timestamp_seconds{route="gpu-chat"}) > 15 * 60 and on(route) seed_inference_probe_success{route="gpu-chat"}
+        labels: { severity: warning }
+        annotations: { summary: "No answer from gpu-chat for {{ $value | humanizeDuration }} (the GPU day's route)." }
       - alert: InferenceProbeNeverSucceeded
         expr: absent(seed_inference_last_success_timestamp_seconds{route="local-embed"})
         for: 30m

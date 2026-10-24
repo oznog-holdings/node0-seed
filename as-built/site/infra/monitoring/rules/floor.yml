@@ -121,6 +121,6 @@ groups:
         annotations: { summary: "{{ $labels.dataset }} is at {{ $value | humanizePercentage }} of its quota." }
       - alert: RebootRequired
         expr: seed_reboot_required == 1
-        for: 1h
+        for: 30m   # was 1h (20261011): half an hour is enough to know a reboot is pending
         labels: { severity: warning }
         annotations: { summary: "{{ $labels.host }} needs a reboot ({{ $labels.reason }}): a reboot is ask-first (some boxes have no remote console)." }
